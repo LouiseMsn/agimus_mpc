@@ -29,7 +29,7 @@ class PatternGenerator:
     """
     A class to generate patterns for glue spreading.
     """
-    def __init__(self, object_dim:list):
+    def __init__(self, object_dim:list, object_center):
         """
         Initialize the PatternGenerator with the dimensions of the object.
 
@@ -39,7 +39,7 @@ class PatternGenerator:
         self.object_length = object_dim[0]  # Assuming object_dim is (length, width, height)
         self.object_width = object_dim[1]
         self.object_height = object_dim[2]
-        self.object_center = (0, 0, 0)  # Default center, can be modified later
+        self.object_center = object_center #(0, 0, 0)  # Default center, can be modified later
 
     def generate_pattern(self, pattern_type, step=10, stride=0.2, orientation='vertical'):
         if pattern_type == 'zigzag':
@@ -334,7 +334,9 @@ class SplineGenerator:
         self.waypoints = np.array(waypoints)
         self.duration = duration
         self.time = np.linspace(0, duration, len(waypoints))[:, None]  # Shape: (N, 1)
+        print("time spline:" + str(self.time))
         self.rbf = RBFInterpolator(self.time, self.waypoints, kernel=kernel)
+        print("rbf: " + str(self.rbf))
         self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])  # Default to 0 yaw
 
     def interpolate_pose(self, t):
@@ -370,13 +372,90 @@ class SplineGenerator:
         self.last_valid_orientation_ref = np.array([roll, pitch, yaw])
         return self.last_valid_orientation_ref
 
+# ==============================================================================
 
+
+# class SplineGenerator:
+#     def __init__(self, start, waypoints,
+#                  v_start=1.0, v_spread=1.0,
+#                  start_kernel='linear', spread_kernel='cubic'):
+#         if len(waypoints) < 2:
+#             raise ValueError("At least two waypoints are required.")
+
+#         self.start = np.array(start)
+#         self.waypoints = np.array(waypoints)
+#         self.v_start = v_start
+#         self.v_spread = v_spread
+#         self.start_kernel = start_kernel
+#         self.spread_kernel = spread_kernel
+
+#         self.start_traj = None
+#         self.spread_traj = None
+#         self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])
+
+#         self._compute_times()
+#         self.compute_full_traj()
+
+#     def _compute_times(self):
+#         # Distance for first segment
+#         d_start = np.linalg.norm(self.waypoints[0] - self.start)
+#         t_start = d_start / self.v_start
+
+#         # Distances for the spread segment
+#         d_spread = np.sum([
+#             np.linalg.norm(self.waypoints[i+1] - self.waypoints[i])
+#             for i in range(len(self.waypoints) - 1)
+#         ])
+#         t_spread = d_spread / self.v_spread
+
+#         # Save time partitions
+#         self.t_start = t_start
+#         self.t_total = t_start + t_spread
+
+#         # Create time arrays for both segments
+#         self.time_start = np.array([0.0, self.t_start])[:, None]
+#         self.time_spread = np.linspace(self.t_start, self.t_total, len(self.waypoints))[:, None]
+
+#     def compute_start_trj(self):
+#         print(self.waypoints[0])
+#         points = np.vstack([self.start, self.waypoints])
+#         print(points)
+#         self.start_traj = RBFInterpolator(self.time_start, points, kernel=self.start_kernel)
+
+#     def compute_spread_traj(self):
+#         points = self.waypoints[0:]
+#         self.spread_traj = RBFInterpolator(self.time_spread, points, kernel=self.spread_kernel)
+
+#     def compute_full_traj(self):
+#         self.compute_start_trj()
+#         self.compute_spread_traj()
+
+#     def interpolate_pose(self, t):
+#         t = np.clip(t, 0.0, self.t_total)
+#         if t <= self.t_start:
+#             return self.start_traj(np.array([[t]]))[0]
+#         else:
+#             return self.spread_traj(np.array([[t]]))[0]
+
+#     def interpolate_ori(self, t, dt=0.01):
+#         t = np.clip(t, 0.0, self.t_total - dt)
+#         t_next = np.clip(t + dt, dt, self.t_total)
+
+#         current_point = self.interpolate_pose(t)
+#         next_point = self.interpolate_pose(t_next)
+#         direction_vector = next_point - current_point
+
+#         roll = 0.0
+#         pitch = 0.0
+#         yaw = np.arctan2(direction_vector[1], direction_vector[0])
+
+#         self.last_valid_orientation_ref = np.array([roll, pitch, yaw])
+#         return self.last_valid_orientation_ref
 
 
 if __name__=="__main__":
-
-    patternGen=PatternGenerator([1,1,0])
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
+    patternGen = PatternGenerator([1,1,0], (0.5,0,0))
+    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.5)
     positions :list = []
     for i in range (len(x)):
         positions.append(np.array([x[i], y[i], z[i]]))
@@ -384,29 +463,32 @@ if __name__=="__main__":
 
 
     # print(waypoints)
-    # positions = [np.array([0.5, 0.0, 0.2]),
-    #             np.array([ 0.5, 0.0, 0.5]),
-    #             np.array([0.35, 0.35, 0.5]),
-    #             np.array([0.35, 0.35, 0.2]),
-    #             np.array([0.0, 0.5, 0.2]),
-    #             np.array([0.0, 0.5, 0.5]),
-    #             np.array([-0.35, 0.35, 0.5]),
-    #             np.array([-0.35, 0.35, 0.2]),
-    #             np.array([-0.5, 0.0, 0.2]),
-    #             np.array([-0.5, 0.0, 0.5]),
-    #             np.array([-0.35, -0.35, 0.5]),
-    #             np.array([-0.35, -0.35, 0.2]),
-    #             np.array([0.0, -0.5, 0.2]),
-    #             np.array([0.0, -0.5, 0.5]),
-    #             np.array([0.35, -0.35,  0.5]),
-    #             np.array([0.35, -0.35,  0.2]),
-    #             np.array([0.5, 0.0, 0.2])]
+    positions = [np.array([0.5, 0.0, 0.2]),
+                np.array([ 0.5, 0.0, 0.5]),
+                np.array([0.35, 0.35, 0.5]),
+                np.array([0.35, 0.35, 0.2]),
+                np.array([0.0, 0.5, 0.2]),
+                np.array([0.0, 0.5, 0.5]),
+                np.array([-0.35, 0.35, 0.5]),
+                np.array([-0.35, 0.35, 0.2]),
+                np.array([-0.5, 0.0, 0.2]),
+                np.array([-0.5, 0.0, 0.5]),
+                np.array([-0.35, -0.35, 0.5]),
+                np.array([-0.35, -0.35, 0.2]),
+                np.array([0.0, -0.5, 0.2]),
+                np.array([0.0, -0.5, 0.5]),
+                np.array([0.35, -0.35,  0.5]),
+                np.array([0.35, -0.35,  0.2]),
+                np.array([0.5, 0.0, 0.2])]
 
 
-    print(positions)
+    # print(positions)
     # positions = [ np.array([-0.5, -0.5,  0. ])]
+    # positions = [np.array([0.5, 0.0, 0.5])]
     duration = 3
-    spline = SplineGenerator(positions, [0, 0, 1], duration, kernel='cubic')
+    # spline = SplineGenerator(positions, [0, 0, 1], duration, start_kernel='cubic', spread_kernel='cubic')
+    spline = SplineGenerator([0,0,0],positions)
+
 
     traj = []
     dt = 0.01
@@ -414,7 +496,9 @@ if __name__=="__main__":
     for t in times:
         pose = spline.interpolate_pose(t)
         traj.append(pose)
+        print("pose:" + str(pose))
     traj = np.array(traj)
+    print(len(traj))
 
     wp_pos = np.array(positions)
 
