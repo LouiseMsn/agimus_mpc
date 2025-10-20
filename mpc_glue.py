@@ -3,7 +3,7 @@ from aligator import constraints, manifolds, dynamics
 
 import example_robot_data as ex_robot_data
 import pinocchio as pin
-from pinocchio.visualize import MeshcatVisualizer
+from pinocchio.visualize import MeshcatVisualizer, ViserVisualizer
 import hppfcl
 
 from mpc_utils import SplineGenerator, PatternGenerator
@@ -173,7 +173,7 @@ class BaseStageFactory():
         self.problem : aligator.TrajOptProblem = None
 
         # Add base costs & constraints present in all problems:
-        self.addJointsLimitsConstraints()
+        # self.addJointsLimitsConstraints()
         # self.addTorqueLimitsConstraints()
         self.addRegulationCosts()
 
@@ -282,20 +282,17 @@ class GlueStageFactory(BaseStageFactory):
     def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints):
         super().__init__(robot, space, n_steps, discrete_dynamics)
         self.waypoints = waypoints
-                tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
-        print("start pos" + str(start_pos))
+        tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
-        self.spline = SplineGenerator(self.waypoints, start_pos ,self.parameters.total_time)
+        self.spline = SplineGenerator(start_pos, self.waypoints, v_spread=0.005, v_start=0.01)
         self.addWaypointCosts()
         self.addOrientationCosts()
 
     def addWaypointCosts(self):
-
-
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
-            target_pos = self.spline.interpolate_pose(t* self.parameters.dt) # TODO rajouter l'interpolation d'orientation
+            target_pos = self.spline.interpolate_pose(t) # TODO rajouter l'interpolation d'orientation
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
@@ -314,22 +311,25 @@ class GlueStageFactory(BaseStageFactory):
         self.stages_definition["stage dependant costs"].append(waypoint_costs)
 
     def addOrientationCosts(self):
-        rpy = self.parameters.tool_orientation
-        R = pin.rpy.rpyToMatrix(rpy)
-        target_orientation = pin.Quaternion(R)
 
-        target_placement = pin.SE3(target_orientation, np.zeros(3)) # on a juste besoin de la rotation
+        waypoint_costs = []
+        for t in range (self.parameters.n_total_steps):
+            rpy = self.spline.interpolate_ori(t)
+            R = pin.rpy.rpyToMatrix(rpy)
+            target_orientation = pin.Quaternion(R)
 
-        placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, target_placement, self.robot.model.getFrameId(self.parameters.tool_frame_name)) # [err_pos(3), err_ori(3)]
+            target_placement = pin.SE3(target_orientation, np.zeros(3)) # on a juste besoin de la rotation
 
-        # L'entrée est le vecteur 6D du placement_residual. La sortie doit être le vecteur 3D de l'erreur d'orientation.
-        A_selector = np.hstack([np.zeros((3, 3)), np.eye(3)]) # sélectionne la partie rotation (les 3 dernières composantes)
-        b_selector = np.zeros(3) # on veut que l'erreur soit nulle
+            placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, target_placement, self.robot.model.getFrameId(self.parameters.tool_frame_name)) # [err_pos(3), err_ori(3)]
 
-        # Ce nouveau résidu ne sortira que la partie orientation de l'erreur de pose.
-        orientation_only_residual = aligator.LinearFunctionComposition(placement_residual, A_selector, b_selector)
+            # L'entrée est le vecteur 6D du placement_residual. La sortie doit être le vecteur 3D de l'erreur d'orientation.
+            A_selector = np.hstack([np.zeros((3, 3)), np.eye(3)]) # sélectionne la partie rotation (les 3 dernières composantes)
+            b_selector = np.zeros(3) # on veut que l'erreur soit nulle
 
-        cost = [("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))]
+            # Ce nouveau résidu ne sortira que la partie orientation de l'erreur de pose.
+            orientation_only_residual = aligator.LinearFunctionComposition(placement_residual, A_selector, b_selector)
+
+            cost = [("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))]
 
         self.stages_definition["stage dependant costs"].append(cost)
 
@@ -511,11 +511,11 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 5
+        self.total_time : int|float = 7
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
-        self.mpc_max_iter : int = 10
+        self.mpc_max_iter : int = 2
         self.solver_tolerance = 1e-7
         self.solver_rollout_type = aligator.ROLLOUT_LINEAR
         self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
