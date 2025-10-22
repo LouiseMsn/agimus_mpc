@@ -173,8 +173,8 @@ class BaseStageFactory():
         self.problem : aligator.TrajOptProblem = None
 
         # Add base costs & constraints present in all problems:
-        # self.addJointsLimitsConstraints()
-        self.addTorqueLimitsConstraints()
+        self.addJointsLimitsConstraints()
+        # self.addTorqueLimitsConstraints()
         self.addRegulationCosts()
 
     def fabricateStages(self, current_stage, duration): #->Tuple(List[aligator.StageModel], aligator.CostStack):
@@ -284,7 +284,7 @@ class GlueStageFactory(BaseStageFactory):
         self.waypoints = waypoints
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
-        self.spline = SplineGenerator(start_pos, self.waypoints, v_spread=0.005, v_start=0.01)
+        self.spline = SplineGenerator(start_pos, self.waypoints, v_spread=self.parameters.spread_vel, v_start=self.parameters.start_vel)
         self.addWaypointCosts()
         # self.addOrientationCosts()
 
@@ -333,7 +333,7 @@ class GlueStageFactory(BaseStageFactory):
 
         self.stages_definition["stage dependant costs"].append(cost)
 
-    def getFullTrajectory(self):
+    def getFullTrajectory_display(self):
         target = self.spline.interpolate_pose(0)
         traj_x = np.array([float(target[0])])
         traj_y = np.array([float(target[1])])
@@ -345,6 +345,12 @@ class GlueStageFactory(BaseStageFactory):
             traj_z = np.append(traj_z, float(target[2]))
         traj = np.array([traj_x, traj_y, traj_z])
 
+        return traj
+
+    def getFullTrajectory(self):
+        traj = []
+        for i in range(self.n_steps):
+            traj.append(self.spline.interpolate_pose(i))
         return traj
 
 class Visualization():
@@ -359,10 +365,16 @@ class Visualization():
         self.vizer = ViserVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
         # self.vizer = MeshcatVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
         self.vizer.initViewer(open=False, loadModel=True)
+        self.vizer.viewer.scene.add_grid(
+                                            "/grid",
+                                            width=20.0,
+                                            height=20.0,
+                                            position=np.array([0.0, 0.0, 0]),
+                                            )
         # self.vizer.setBackgroundColor(col_top=[1, 0.796, 0.529], col_bot=[0.427, 0.471, 0.929])
 
         self.vizer.display(self.mpc.q0)
-        self.mpc.stage_factory.getFullTrajectory()
+        self.mpc.stage_factory.getFullTrajectory_display()
         time.sleep(10)
 
     def display(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
@@ -370,30 +382,29 @@ class Visualization():
         waypoints = self.mpc.waypoints
         self.vizer.viewer.scene.add_spline_catmull_rom(
             "Waypoints",
-            points=waypoints,
+            points=self.mpc.stage_factory.getFullTrajectory(),
             tension=0.5,
             line_width=3.0,
-            color=np.random.uniform(size=3),
+            color=np.array([255, 129, 254]),
             segments=100,
         )
-
         xs_opt = xs
         us_opt = np.asarray(us)
         xs = np.array(xs)
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
+        traj_executed = []
+        for i in range(pts.T.shape[1]):
+            traj_executed.append(np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])]))
 
-        # add trajectory executed to the vizualisation: EDIT : toggled because of lag
-        # if args.viz_traj:
-        #     for i in range(pts.T.shape[1]):
-        #         target_place = pin.SE3.Identity()
-        #         target_place.translation = np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])])
-        #         target_object = pin.GeometryObject(
-        #                 "exec_traj_" + str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.005), target_place
-        #             )
-        #         self.vizer.addGeometryObject(target_object, [1, 0, 0, 0.5])
-
-
+            self.vizer.viewer.scene.add_spline_catmull_rom(
+            "Output traj",
+            points=traj_executed,
+            tension=0.5,
+            line_width=3.0,
+            color=np.array([6, 117, 255]),
+            segments=100,
+        )
 
         times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
 
@@ -432,7 +443,7 @@ class Visualization():
 
         ax = plt.subplot(gs[0, 1], projection="3d")
         ax.plot(*pts.T, lw=1.0) # actual traj
-        ax.plot(*self.mpc.stage_factory.getFullTrajectory(), "m", lw=1, alpha=0.7) # command trajectory # TODO
+        ax.plot(*self.mpc.stage_factory.getFullTrajectory_display(), "m", lw=1, alpha=0.7) # command trajectory # TODO
 
 
         for waypoint in self.mpc.waypoints:
@@ -478,22 +489,20 @@ class Visualization():
 
         plt.show()
 
-        if args.display:
-            input("[Press enter]")
-            num_repeat = 10
 
-            qs = [x[:self.mpc.n_q] for x in xs_opt]
+        input("[Press enter]")
+        num_repeat = 10
 
-            # qs = [pin.randomConfiguration(self.robot_model) for i in range(100)]
+        qs = [x[:self.mpc.n_q] for x in xs_opt]
 
-            for i in range(num_repeat):
+        for i in range(num_repeat):
 
-                start = time.time()
-                self.vizer.play(qs, self.mpc.parameters.dt)
-                stop = time.time()
-                print("Playing time: " + str(stop - start))
+            start = time.time()
+            self.vizer.play(qs, self.mpc.parameters.dt)
+            stop = time.time()
+            print("Playing time: " + str(stop - start))
 
-                time.sleep(3)
+            time.sleep(3)
 
     def get_endpoint_traj(self, xs: List[np.ndarray]):
         pts = []
@@ -515,11 +524,11 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 7
+        self.total_time : int|float = 2
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
-        self.mpc_max_iter : int = 2
+        self.mpc_max_iter : int = 5
         self.solver_tolerance = 1e-7
         self.solver_rollout_type = aligator.ROLLOUT_LINEAR
         self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
@@ -528,16 +537,18 @@ class Params():
 
         # Weights:
         self.joint_reg_cost = 1e-2 #1e-4
-        self.vel_reg_cost = 1e-2
-        self.command_reg_cost = 1e-4
+        self.vel_reg_cost = 1e-4
+        self.command_reg_cost = 1e-2
         self.term_state_reg_cost = 1e-4
         self.waypoint_x_weight = 1e-4
-        self.waypoint_frame_pos_weight = 200.0
+        self.waypoint_frame_pos_weight = 100.0
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 50
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
+        self.start_vel = 0.1
+        self.spread_vel = 0.005
 
     def __repr__(self)->str:
         """
@@ -568,31 +579,32 @@ class Params():
                 f'\n\tOrientation: {self.orientation_weight}\n'\
 
 if __name__ == "__main__":
-    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
-    positions :list = []
-    for i in range (len(x)):
-        positions.append(np.array([x[i], y[i], z[i]]))
+    # patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
+    # x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
+    # positions :list = []
+    # for i in range (len(x)):
+    #     positions.append(np.array([x[i], y[i], z[i]]))
+    # print("num de positions:" + str(len(positions)))
 
-    print("num de positions:" + str(len(positions)))
-    # positions = [np.array([0.5, 0.0, 0.2]),
-    #             np.array([ 0.5, 0.0, 0.5]),
-    #             np.array([0.35, 0.35, 0.5]),
-    #             np.array([0.35, 0.35, 0.2]),
-    #             np.array([0.0, 0.5, 0.2]),
-    #             np.array([0.0, 0.5, 0.5]),
-    #             np.array([-0.35, 0.35, 0.5]),
-    #             np.array([-0.35, 0.35, 0.2]),
-    #             np.array([-0.5, 0.0, 0.2]),
-    #             np.array([-0.5, 0.0, 0.5]),
-    #             np.array([-0.35, -0.35, 0.5]),
-    #             np.array([-0.35, -0.35, 0.2]),
-    #             np.array([0.0, -0.5, 0.2]),
-    #             np.array([0.0, -0.5, 0.5]),
-    #             np.array([0.35, -0.35,  0.5]),
-    #             np.array([0.35, -0.35,  0.2]),
-    #             np.array([0.5, 0.0, 0.2])]
+    positions = [np.array([0.5, 0.0, 0]), np.array([0.5, 0.5, 0])]
+
+                # np.array([ 0.5, 0.0, 0.5]),
+                # np.array([0.35, 0.35, 0.5]),
+                # np.array([0.35, 0.35, 0.2]),
+                # np.array([0.0, 0.5, 0.2]),
+                # np.array([0.0, 0.5, 0.5]),
+                # np.array([-0.35, 0.35, 0.5]),
+                # np.array([-0.35, 0.35, 0.2]),
+                # np.array([-0.5, 0.0, 0.2]),
+                # np.array([-0.5, 0.0, 0.5]),
+                # np.array([-0.35, -0.35, 0.5]),
+                # np.array([-0.35, -0.35, 0.2]),
+                # np.array([0.0, -0.5, 0.2]),
+                # np.array([0.0, -0.5, 0.5]),
+                # np.array([0.35, -0.35,  0.5]),
+                # np.array([0.35, -0.35,  0.2]),
+                # np.array([0.5, 0.0, 0.2])]
     mpc = MPC(positions)
-    final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
     viz = Visualization(mpc)
+    final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
     viz.display(final_results_xs, final_results_us, prim_infeas, dual_infeas, mpc_loop_times)

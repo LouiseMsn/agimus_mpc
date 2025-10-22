@@ -326,51 +326,51 @@ class PatternGenerator:
     #     return transformed
 
 
-# class SplineGenerator:
-#     def __init__(self, waypoints, start_pos, duration, kernel='cubic'):
-#         waypoints.insert(0,start_pos)
-#         if len(waypoints) < 2:
-#             raise ValueError("At least two waypoints are required.")
-#         self.waypoints = np.array(waypoints)
-#         self.duration = duration
-#         self.time = np.linspace(0, duration, len(waypoints))[:, None]  # Shape: (N, 1)
-#         print("time spline:" + str(self.time))
-#         self.rbf = RBFInterpolator(self.time, self.waypoints, kernel=kernel)
-#         print("rbf: " + str(self.rbf))
-#         self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])  # Default to 0 yaw
+class SplineGenerator_no_vel:
+    def __init__(self, waypoints, start_pos, duration, kernel='cubic'):
+        waypoints.insert(0,start_pos)
+        if len(waypoints) < 2:
+            raise ValueError("At least two waypoints are required.")
+        self.waypoints = np.array(waypoints)
+        self.duration = duration
+        self.time = np.linspace(0, duration, len(waypoints))[:, None]  # Shape: (N, 1)
+        print("time spline:" + str(self.time))
+        self.rbf = RBFInterpolator(self.time, self.waypoints, kernel=kernel)
+        print("rbf: " + str(self.rbf))
+        self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])  # Default to 0 yaw
 
-#     def interpolate_pose(self, t):
-#         """Return interpolated position at time t (clamped to [0, duration])"""
-#         t = np.clip(t, 0.0, self.duration)
-#         return self.rbf(np.array([[t]]))[0]  # Shape: (3,)
+    def interpolate_pose(self, t):
+        """Return interpolated position at time t (clamped to [0, duration])"""
+        t = np.clip(t, 0.0, self.duration)
+        return self.rbf(np.array([[t]]))[0]  # Shape: (3,)
 
-#     def interpolate_ori(self, t, dt=0.01):
-#         """
-#         Compute the orientation based on the tangent (direction) of the trajectory.
+    def interpolate_ori(self, t, dt=0.01):
+        """
+        Compute the orientation based on the tangent (direction) of the trajectory.
 
-#         Args:
-#             t (float): current time
-#             dt (float): small time increment for computing direction vector
+        Args:
+            t (float): current time
+            dt (float): small time increment for computing direction vector
 
-#         Returns:
-#             orientation (np.array): [roll, pitch, yaw] in radians
-#         """
-#         t = np.clip(t, 0.0, self.duration - dt)
-#         t_next = np.clip(t + dt, dt, self.duration)
+        Returns:
+            orientation (np.array): [roll, pitch, yaw] in radians
+        """
+        t = np.clip(t, 0.0, self.duration - dt)
+        t_next = np.clip(t + dt, dt, self.duration)
 
-#         current_point = self.rbf(np.array([[t]]))[0]
-#         next_point = self.rbf(np.array([[t_next]]))[0]
-#         direction_vector = next_point - current_point
-
-
-#         # Compute yaw angle from the direction in XY plane
-#         roll = 0.0
-#         pitch = 0.0
-#         yaw = np.arctan2(direction_vector[1], direction_vector[0])
+        current_point = self.rbf(np.array([[t]]))[0]
+        next_point = self.rbf(np.array([[t_next]]))[0]
+        direction_vector = next_point - current_point
 
 
-#         self.last_valid_orientation_ref = np.array([roll, pitch, yaw])
-#         return self.last_valid_orientation_ref
+        # Compute yaw angle from the direction in XY plane
+        roll = 0.0
+        pitch = 0.0
+        yaw = np.arctan2(direction_vector[1], direction_vector[0])
+
+
+        self.last_valid_orientation_ref = np.array([roll, pitch, yaw])
+        return self.last_valid_orientation_ref
 
 # ==============================================================================
 
@@ -458,13 +458,11 @@ class SplineGenerator:
 
 
 if __name__=="__main__":
-    patternGen = PatternGenerator([1,1,0], (0.5,0,0))
+    patternGen = PatternGenerator([1,1,0], (0.5,0,0.2))
     x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.5)
     positions :list = []
     for i in range (len(x)):
         positions.append(np.array([x[i], y[i], z[i]]))
-
-
 
     # print(waypoints)
     # positions = [np.array([0.5, 0.0, 0.2]),
@@ -487,9 +485,9 @@ if __name__=="__main__":
 
 
     # print(positions)
-    positions = [ np.array([1, 0,  0. ]), np.array([1.1,0,0]), np.array([1.2,0,0])]
+    # positions = [ np.array([1, 0,  0. ]), np.array([2,1,0]), np.array([3,0,0])]
     # positions = [np.array([0.5, 0.0, 0.5])]
-    duration = 3
+    duration = 7
     # spline = SplineGenerator(positions, [0, 0, 1], duration, start_kernel='cubic', spread_kernel='cubic')
     spline = SplineGenerator(start=[0,0,0],waypoints=positions)
 
