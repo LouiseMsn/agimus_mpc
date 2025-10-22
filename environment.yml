@@ -1,0 +1,9 @@
+name: agimus_mpc
+channels:
+  - conda-forge
+dependencies:
+  - pinocchio
+  - aligator
+  - example-robot-data-loaders #=4.4.0=pyh2537366_0
+  - pip:
+    - viser
