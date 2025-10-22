@@ -576,6 +576,8 @@ class Params():
                     f'\t\tState: {self.waypoint_x_weight}\n'\
                     f'\t\tFrame position: {self.waypoint_frame_pos_weight}\n'\
                     f'\t\tFrame velocity: {self.waypoint_frame_vel_weight}\n'\
+                    f'\t\tVelocity from start to spread: {self.start_vel}\n'\
+                    f'\t\tVelocity during spread: {self.spread_vel}\n'\
                 f'\n\tOrientation: {self.orientation_weight}\n'\
 
 if __name__ == "__main__":
