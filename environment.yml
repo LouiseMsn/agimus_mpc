@@ -1,0 +1,8 @@
+name: agimus_mpc_a15
+channels:
+  - conda-forge
+dependencies:
+  - aligator=0.15
+  - conda-forge::meshcat-python
+  - seaborn
+  - example-robot-data-loaders
