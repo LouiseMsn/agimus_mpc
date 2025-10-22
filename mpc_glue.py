@@ -284,7 +284,7 @@ class GlueStageFactory(BaseStageFactory):
         self.waypoints = waypoints
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
-        self.spline = SplineGenerator(start_pos, self.waypoints, v_spread=0.005, v_start=0.01)
+        self.spline = SplineGenerator(start_pos, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
         self.addWaypointCosts()
         # self.addOrientationCosts()
 
@@ -356,10 +356,9 @@ class Visualization():
         self.instanciateVizer()
 
     def instanciateVizer(self):
-        self.vizer = ViserVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
-        # self.vizer = MeshcatVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
+        self.vizer = MeshcatVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
         self.vizer.initViewer(open=False, loadModel=True)
-        # self.vizer.setBackgroundColor(col_top=[1, 0.796, 0.529], col_bot=[0.427, 0.471, 0.929])
+        self.vizer.setBackgroundColor(col_top=[1, 0.796, 0.529], col_bot=[0.427, 0.471, 0.929])
 
         self.vizer.display(self.mpc.q0)
         self.mpc.stage_factory.getFullTrajectory()
@@ -368,32 +367,27 @@ class Visualization():
     def display(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
         # add waypoints to the vizualisation:
         waypoints = self.mpc.waypoints
-        self.vizer.viewer.scene.add_spline_catmull_rom(
-            "Waypoints",
-            points=waypoints,
-            tension=0.5,
-            line_width=3.0,
-            color=np.random.uniform(size=3),
-            segments=100,
-        )
-
         xs_opt = xs
         us_opt = np.asarray(us)
         xs = np.array(xs)
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
 
+        for i in range(len(waypoints)):
+            target_place = pin.SE3.Identity()
+            target_place.translation = waypoints[i]
+            target_object = pin.GeometryObject("waypoint_"+str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.01), target_place)
+            self.vizer.addGeometryObject(target_object, [0.5, 0.5, 1.0, 0.5])
+
         # add trajectory executed to the vizualisation: EDIT : toggled because of lag
-        # if args.viz_traj:
-        #     for i in range(pts.T.shape[1]):
-        #         target_place = pin.SE3.Identity()
-        #         target_place.translation = np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])])
-        #         target_object = pin.GeometryObject(
-        #                 "exec_traj_" + str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.005), target_place
-        #             )
-        #         self.vizer.addGeometryObject(target_object, [1, 0, 0, 0.5])
-
-
+        if args.viz_traj:
+            for i in range(pts.T.shape[1]):
+                target_place = pin.SE3.Identity()
+                target_place.translation = np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])])
+                target_object = pin.GeometryObject(
+                        "exec_traj_" + str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.005), target_place
+                    )
+                self.vizer.addGeometryObject(target_object, [1, 0, 0, 0.5])
 
         times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
 
@@ -535,6 +529,8 @@ class Params():
         self.waypoint_frame_pos_weight = 200.0
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 50
+        self.vel_spread =0.005
+        self.vel_start=0.1
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
