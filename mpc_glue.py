@@ -173,9 +173,9 @@ class BaseStageFactory():
         self.problem : aligator.TrajOptProblem = None
 
         # Add base costs & constraints present in all problems:
-        self.addJointsLimitsConstraints()
-        # self.addTorqueLimitsConstraints()
-        self.addRegulationCosts()
+        self._addJointsLimitsConstraints()
+        # self._addTorqueLimitsConstraints()
+        self._addRegulationCosts()
 
     def fabricateStages(self, current_stage, duration): #->Tuple(List[aligator.StageModel], aligator.CostStack):
         """
@@ -190,7 +190,7 @@ class BaseStageFactory():
         for stage_num in range(current_stage, duration + current_stage):
             # print("stage n°"+str(stage_num))
             stage_coststack = aligator.CostStack(self.space, self.nu)
-            cost_list = self.getDynamicCosts(stage_num)
+            cost_list = self._getDynamicCosts(stage_num)
             # print("cost list: " + str(cost_list))
             for cost in cost_list:
                 stage_coststack.addCost(*cost)
@@ -201,7 +201,7 @@ class BaseStageFactory():
 
         return stages, terminal_coststack
 
-    def addJointsLimitsConstraints(self) -> None:
+    def _addJointsLimitsConstraints(self) -> None:
         """
         Adds joints limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
         """
@@ -229,7 +229,7 @@ class BaseStageFactory():
             constraint = (joint_angle_residual, box_constraint)
             self.stages_definition["constraints"].append(constraint)
 
-    def addTorqueLimitsConstraints(self):
+    def _addTorqueLimitsConstraints(self):
         """
         Adds torque limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
         """
@@ -240,7 +240,7 @@ class BaseStageFactory():
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
         self.stages_definition["constraints"].append((residual, constraint))
 
-    def addRegulationCosts(self):
+    def _addRegulationCosts(self):
         wt_x = self.parameters.joint_reg_cost*np.ones(self.ndx)
         wt_x[self.nv:] = self.parameters.vel_reg_cost
         wt_x = np.diag(wt_x)
@@ -256,7 +256,7 @@ class BaseStageFactory():
         stage_reg_cost = [("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))]
         self.stages_definition["stage dependant costs"].append(stage_reg_cost)
 
-    def getDynamicCosts(self, current_stage_num):
+    def _getDynamicCosts(self, current_stage_num):
         """
         Returns a list of cost for the current stage. If a cost is not defined for a given t, the last instance of this cost is returned instead.
         """
@@ -268,7 +268,7 @@ class BaseStageFactory():
                 stage_costs.append(cost_list[-1])
         return stage_costs
 
-    def addAutoCollisionsConstraints(self):
+    def _addAutoCollisionsConstraints(self):
         #TODO
         pass
 
@@ -284,15 +284,15 @@ class GlueStageFactory(BaseStageFactory):
         self.waypoints = waypoints
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
-        self.spline = SplineGenerator(start_pos, self.waypoints, v_spread=self.parameters.spread_vel, v_start=self.parameters.start_vel)
-        self.addWaypointCosts()
-        # self.addOrientationCosts()
+        self.spline = SplineGenerator(start_pos, self.waypoints, v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
+        self._addWaypointCosts()
+        # self._addOrientationCosts()
 
-    def addWaypointCosts(self):
+    def _addWaypointCosts(self):
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
-            target_pos = self.spline.interpolate_pose(t) # TODO rajouter l'interpolation d'orientation
+            target_pos = self.spline.interpolate_pose(t*self.parameters.dt) # TODO rajouter l'interpolation d'orientation
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
@@ -310,11 +310,11 @@ class GlueStageFactory(BaseStageFactory):
             waypoint_costs.append(cost)
         self.stages_definition["stage dependant costs"].append(waypoint_costs)
 
-    def addOrientationCosts(self):
+    def _addOrientationCosts(self):
 
-        waypoint_costs = []
+        orientation_costs = []
         for t in range (self.parameters.n_total_steps):
-            rpy = self.spline.interpolate_ori(t)
+            rpy = self.spline.interpolate_ori(t*self.parameters.dt)
             R = pin.rpy.rpyToMatrix(rpy)
             target_orientation = pin.Quaternion(R)
 
@@ -329,7 +329,8 @@ class GlueStageFactory(BaseStageFactory):
             # Ce nouveau résidu ne sortira que la partie orientation de l'erreur de pose.
             orientation_only_residual = aligator.LinearFunctionComposition(placement_residual, A_selector, b_selector)
 
-            cost = [("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))]
+            cost = ("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))
+            orientation_costs.append(cost)
 
         self.stages_definition["stage dependant costs"].append(cost)
 
@@ -339,7 +340,7 @@ class GlueStageFactory(BaseStageFactory):
         traj_y = np.array([float(target[1])])
         traj_z = np.array([float(target[2])])
         for i in range(self.n_steps):
-            target = self.spline.interpolate_pose(i)
+            target = self.spline.interpolate_pose(i*self.parameters.dt)
             traj_x = np.append(traj_x, float(target[0]))
             traj_y = np.append(traj_y, float(target[1]))
             traj_z = np.append(traj_z, float(target[2]))
@@ -350,7 +351,7 @@ class GlueStageFactory(BaseStageFactory):
     def getFullTrajectory(self):
         traj = []
         for i in range(self.n_steps):
-            traj.append(self.spline.interpolate_pose(i))
+            traj.append(self.spline.interpolate_pose(i*self.parameters.dt))
         return traj
 
 class Visualization():
@@ -359,11 +360,10 @@ class Visualization():
         self.robot = self.mpc.robot
         # self.results = results
 
-        self.instanciateVizer()
+        self._instanciateVizer()
 
-    def instanciateVizer(self):
+    def _instanciateVizer(self):
         self.vizer = ViserVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
-        # self.vizer = MeshcatVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
         self.vizer.initViewer(open=False, loadModel=True)
         self.vizer.viewer.scene.add_grid(
                                             "/grid",
@@ -371,7 +371,6 @@ class Visualization():
                                             height=20.0,
                                             position=np.array([0.0, 0.0, 0]),
                                             )
-        # self.vizer.setBackgroundColor(col_top=[1, 0.796, 0.529], col_bot=[0.427, 0.471, 0.929])
 
         self.vizer.display(self.mpc.q0)
         self.mpc.stage_factory.getFullTrajectory_display()
@@ -524,11 +523,11 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 2
+        self.total_time : int|float = 5
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
-        self.mpc_max_iter : int = 5
+        self.mpc_max_iter : int = 2
         self.solver_tolerance = 1e-7
         self.solver_rollout_type = aligator.ROLLOUT_LINEAR
         self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
@@ -536,9 +535,9 @@ class Params():
         self.verbose = aligator.VerboseLevel.QUIET #or VERBOSE
 
         # Weights:
-        self.joint_reg_cost = 1e-2 #1e-4
+        self.joint_reg_cost = 1e-10 #1e-4
         self.vel_reg_cost = 1e-4
-        self.command_reg_cost = 1e-2
+        self.command_reg_cost = 1e-4
         self.term_state_reg_cost = 1e-4
         self.waypoint_x_weight = 1e-4
         self.waypoint_frame_pos_weight = 100.0
@@ -547,8 +546,8 @@ class Params():
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
-        self.start_vel = 0.1
-        self.spread_vel = 0.005
+        self.vel_start = 0.1
+        self.vel_spread = 0.1
 
     def __repr__(self)->str:
         """
@@ -576,19 +575,19 @@ class Params():
                     f'\t\tState: {self.waypoint_x_weight}\n'\
                     f'\t\tFrame position: {self.waypoint_frame_pos_weight}\n'\
                     f'\t\tFrame velocity: {self.waypoint_frame_vel_weight}\n'\
-                    f'\t\tVelocity from start to spread: {self.start_vel}\n'\
-                    f'\t\tVelocity during spread: {self.spread_vel}\n'\
+                    f'\t\tVelocity from start to spread: {self.vel_start}\n'\
+                    f'\t\tVelocity during spread: {self.vel_spread}\n'\
                 f'\n\tOrientation: {self.orientation_weight}\n'\
 
 if __name__ == "__main__":
-    # patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
-    # x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
-    # positions :list = []
-    # for i in range (len(x)):
-    #     positions.append(np.array([x[i], y[i], z[i]]))
-    # print("num de positions:" + str(len(positions)))
+    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
+    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
+    positions :list = []
+    for i in range (len(x)):
+        positions.append(np.array([x[i], y[i], z[i]]))
+    print("num de positions:" + str(len(positions)))
 
-    positions = [np.array([0.5, 0.0, 0]), np.array([0.5, 0.5, 0])]
+    # positions = [np.array([0.5, 0.0, 0]), np.array([0.5, 0.5, 0])]
 
                 # np.array([ 0.5, 0.0, 0.5]),
                 # np.array([0.35, 0.35, 0.5]),
