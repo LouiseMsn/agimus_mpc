@@ -528,7 +528,7 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 7
+        self.total_time : int|float = 10
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
@@ -540,15 +540,15 @@ class Params():
         self.verbose = aligator.VerboseLevel.QUIET #or VERBOSE
 
         # Weights:
-        self.joint_reg_cost = 1e-4 #1e-4
+        self.joint_reg_cost = 1e-2 #1e-4
         self.vel_reg_cost = 1e-4
         self.command_reg_cost = 1e-4
         self.term_state_reg_cost = 1e-4
         self.waypoint_x_weight = 1e-4
-        self.waypoint_frame_pos_weight = 200.0
+        self.waypoint_frame_pos_weight = 100.0
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 1
-        self.vel_spread = 1
+        self.vel_spread = 0.5
         self.vel_start = 0.5
 
         # Trajectory
