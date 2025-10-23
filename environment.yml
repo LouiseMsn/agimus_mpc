@@ -1,4 +1,4 @@
-name: agimus_mpc
+name: agimus_mpc_a16
 channels:
   - conda-forge
 dependencies:
