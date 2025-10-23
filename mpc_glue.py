@@ -8,7 +8,9 @@ import hppfcl
 
 from mpc_utils import SplineGenerator, PatternGenerator
 
+import sys
 import numpy as np
+np.set_printoptions(threshold=sys.maxsize)
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from typing import Literal, List, Optional, Tuple
@@ -173,9 +175,9 @@ class BaseStageFactory():
         self.problem : aligator.TrajOptProblem = None
 
         # Add base costs & constraints present in all problems:
-        # self.addJointsLimitsConstraints()
-        self.addTorqueLimitsConstraints()
-        self.addRegulationCosts()
+        self._addJointsLimitsConstraints()
+        self._addTorqueLimitsConstraints()
+        self._addRegulationCosts()
 
     def fabricateStages(self, current_stage, duration): #->Tuple(List[aligator.StageModel], aligator.CostStack):
         """
@@ -190,7 +192,7 @@ class BaseStageFactory():
         for stage_num in range(current_stage, duration + current_stage):
             # print("stage n°"+str(stage_num))
             stage_coststack = aligator.CostStack(self.space, self.nu)
-            cost_list = self.getDynamicCosts(stage_num)
+            cost_list = self._getDynamicCosts(stage_num)
             # print("cost list: " + str(cost_list))
             for cost in cost_list:
                 stage_coststack.addCost(*cost)
@@ -201,7 +203,7 @@ class BaseStageFactory():
 
         return stages, terminal_coststack
 
-    def addJointsLimitsConstraints(self) -> None:
+    def _addJointsLimitsConstraints(self) -> None:
         """
         Adds joints limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
         """
@@ -229,7 +231,7 @@ class BaseStageFactory():
             constraint = (joint_angle_residual, box_constraint)
             self.stages_definition["constraints"].append(constraint)
 
-    def addTorqueLimitsConstraints(self):
+    def _addTorqueLimitsConstraints(self):
         """
         Adds torque limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
         """
@@ -240,7 +242,7 @@ class BaseStageFactory():
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
         self.stages_definition["constraints"].append((residual, constraint))
 
-    def addRegulationCosts(self):
+    def _addRegulationCosts(self):
         wt_x = self.parameters.joint_reg_cost*np.ones(self.ndx)
         wt_x[self.nv:] = self.parameters.vel_reg_cost
         wt_x = np.diag(wt_x)
@@ -256,7 +258,7 @@ class BaseStageFactory():
         stage_reg_cost = [("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))]
         self.stages_definition["stage dependant costs"].append(stage_reg_cost)
 
-    def getDynamicCosts(self, current_stage_num):
+    def _getDynamicCosts(self, current_stage_num):
         """
         Returns a list of cost for the current stage. If a cost is not defined for a given t, the last instance of this cost is returned instead.
         """
@@ -268,7 +270,7 @@ class BaseStageFactory():
                 stage_costs.append(cost_list[-1])
         return stage_costs
 
-    def addAutoCollisionsConstraints(self):
+    def _addAutoCollisionsConstraints(self):
         #TODO
         pass
 
@@ -285,14 +287,17 @@ class GlueStageFactory(BaseStageFactory):
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
         self.spline = SplineGenerator(start_pos, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
-        self.addWaypointCosts()
-        # self.addOrientationCosts()
+        self._addWaypointCosts()
+        # self._addOrientationCosts()
 
-    def addWaypointCosts(self):
+    def _addWaypointCosts(self):
+        """
+        For each stage, adds a cost tied to matching the end effector frame to a waypoint frame
+        """
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
-            target_pos = self.spline.interpolate_pose(t) # TODO rajouter l'interpolation d'orientation
+            target_pos = self.spline.interpolate_pose(t*self.parameters.dt) # TODO rajouter l'interpolation d'orientation
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
@@ -310,11 +315,12 @@ class GlueStageFactory(BaseStageFactory):
             waypoint_costs.append(cost)
         self.stages_definition["stage dependant costs"].append(waypoint_costs)
 
-    def addOrientationCosts(self):
+    def _addOrientationCosts(self):
 
-        waypoint_costs = []
+        orientation_costs = []
         for t in range (self.parameters.n_total_steps):
-            rpy = self.spline.interpolate_ori(t)
+            rpy = self.spline.interpolate_ori(t*self.parameters.dt)
+            print(f'rpy: {rpy}')
             R = pin.rpy.rpyToMatrix(rpy)
             target_orientation = pin.Quaternion(R)
 
@@ -329,9 +335,9 @@ class GlueStageFactory(BaseStageFactory):
             # Ce nouveau résidu ne sortira que la partie orientation de l'erreur de pose.
             orientation_only_residual = aligator.LinearFunctionComposition(placement_residual, A_selector, b_selector)
 
-            cost = [("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))]
-
-        self.stages_definition["stage dependant costs"].append(cost)
+            cost = ("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))
+            orientation_costs.append(cost)
+        self.stages_definition["stage dependant costs"].append(orientation_costs)
 
     def getFullTrajectory(self):
         target = self.spline.interpolate_pose(0)
@@ -339,7 +345,7 @@ class GlueStageFactory(BaseStageFactory):
         traj_y = np.array([float(target[1])])
         traj_z = np.array([float(target[2])])
         for i in range(self.n_steps):
-            target = self.spline.interpolate_pose(i)
+            target = self.spline.interpolate_pose(i*self.parameters.dt)
             traj_x = np.append(traj_x, float(target[0]))
             traj_y = np.append(traj_y, float(target[1]))
             traj_z = np.append(traj_z, float(target[2]))
@@ -348,14 +354,20 @@ class GlueStageFactory(BaseStageFactory):
         return traj
 
 class Visualization():
+    """
+    Class used to visualize the results of a MPC run
+    """
     def __init__(self,  mpc : MPC):
         self.mpc = mpc
         self.robot = self.mpc.robot
         # self.results = results
 
-        self.instanciateVizer()
+        self._instanciateVizer()
 
-    def instanciateVizer(self):
+    def _instanciateVizer(self):
+        """
+        Instanciates the viewer and sets
+        """
         self.vizer = MeshcatVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
         self.vizer.initViewer(open=False, loadModel=True)
         self.vizer.setBackgroundColor(col_top=[1, 0.796, 0.529], col_bot=[0.427, 0.471, 0.929])
@@ -365,6 +377,9 @@ class Visualization():
         time.sleep(10)
 
     def display(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
+        """
+        Displays the traj in meshcat as well as graphs #todo splits the graphs
+        """
         # add waypoints to the vizualisation:
         waypoints = self.mpc.waypoints
         xs_opt = xs
@@ -373,11 +388,11 @@ class Visualization():
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
 
-        for i in range(len(waypoints)):
-            target_place = pin.SE3.Identity()
-            target_place.translation = waypoints[i]
-            target_object = pin.GeometryObject("waypoint_"+str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.01), target_place)
-            self.vizer.addGeometryObject(target_object, [0.5, 0.5, 1.0, 0.5])
+        # for i in range(len(waypoints)):
+        #     target_place = pin.SE3.Identity()
+        #     target_place.translation = waypoints[i]
+        #     target_object = pin.GeometryObject("waypoint_"+str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.01), target_place)
+        #     self.vizer.addGeometryObject(target_object, [0.5, 0.5, 1.0, 0.5])
 
         # add trajectory executed to the vizualisation: EDIT : toggled because of lag
         if args.viz_traj:
@@ -422,12 +437,9 @@ class Visualization():
             if i + 1 == self.mpc.nu - 1:
                 ax.set_xlabel("time", loc="left", fontsize=fontsize)
 
-
-
         ax = plt.subplot(gs[0, 1], projection="3d")
         ax.plot(*pts.T, lw=1.0) # actual traj
         ax.plot(*self.mpc.stage_factory.getFullTrajectory(), "m", lw=1, alpha=0.7) # command trajectory # TODO
-
 
         for waypoint in self.mpc.waypoints:
             ax.scatter(*waypoint, marker="^", c="r")
@@ -478,8 +490,6 @@ class Visualization():
 
             qs = [x[:self.mpc.n_q] for x in xs_opt]
 
-            # qs = [pin.randomConfiguration(self.robot_model) for i in range(100)]
-
             for i in range(num_repeat):
 
                 start = time.time()
@@ -490,16 +500,25 @@ class Visualization():
                 time.sleep(3)
 
     def get_endpoint_traj(self, xs: List[np.ndarray]):
+        """
+        Gets the trajectory of the effector for a state list
+        """
         pts = []
         for i in range(len(xs)):
             pts.append(self.get_endpoint(xs[i][: self.mpc.n_q]))
         return np.array(pts)
 
     def get_endpoint(self, q: np.ndarray):
+        """
+        Gets the effector pose for a joint configuration q
+        """
         pin.framesForwardKinematics(self.robot.model, self.robot.data, q)
         return self.robot.data.oMf[self.mpc.tool_id].translation.copy()
 
 class Params():
+    """
+    Class regrouping the parameters used in the MPC
+    """
     def __init__(self)->None:
         # Robot
         self.robot_name : str = "panda"
@@ -521,16 +540,16 @@ class Params():
         self.verbose = aligator.VerboseLevel.QUIET #or VERBOSE
 
         # Weights:
-        self.joint_reg_cost = 1e-2 #1e-4
-        self.vel_reg_cost = 1e-2
+        self.joint_reg_cost = 1e-4 #1e-4
+        self.vel_reg_cost = 1e-4
         self.command_reg_cost = 1e-4
         self.term_state_reg_cost = 1e-4
         self.waypoint_x_weight = 1e-4
         self.waypoint_frame_pos_weight = 200.0
         self.waypoint_frame_vel_weight = 1
-        self.orientation_weight = 50
-        self.vel_spread =0.005
-        self.vel_start=0.1
+        self.orientation_weight = 1
+        self.vel_spread = 1
+        self.vel_start = 0.5
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
@@ -565,12 +584,14 @@ class Params():
 
 if __name__ == "__main__":
     patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
+    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
     positions :list = []
     for i in range (len(x)):
         positions.append(np.array([x[i], y[i], z[i]]))
 
-    print("num de positions:" + str(len(positions)))
+    # print(f'Positions: \n{positions}')
+    # print("num de positions:" + str(len(positions)))
+
     # positions = [np.array([0.5, 0.0, 0.2]),
     #             np.array([ 0.5, 0.0, 0.5]),
     #             np.array([0.35, 0.35, 0.5]),
@@ -588,6 +609,7 @@ if __name__ == "__main__":
     #             np.array([0.35, -0.35,  0.5]),
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
+
     mpc = MPC(positions)
     final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
     viz = Visualization(mpc)
