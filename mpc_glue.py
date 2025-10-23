@@ -173,7 +173,7 @@ class BaseStageFactory():
         self.problem : aligator.TrajOptProblem = None
 
         # Add base costs & constraints present in all problems:
-        self._addJointsLimitsConstraints()
+        # self._addJointsLimitsConstraints()
         # self._addTorqueLimitsConstraints()
         self._addRegulationCosts()
 
@@ -289,10 +289,15 @@ class GlueStageFactory(BaseStageFactory):
         # self._addOrientationCosts()
 
     def _addWaypointCosts(self):
+        """
+        For each stage, adds a cost tied to matching the end effector frame to a waypoint frame
+        """
+
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
             target_pos = self.spline.interpolate_pose(t*self.parameters.dt) # TODO rajouter l'interpolation d'orientation
+            print(f'target pose: {target_pos}')
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
@@ -332,7 +337,7 @@ class GlueStageFactory(BaseStageFactory):
             cost = ("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))
             orientation_costs.append(cost)
 
-        self.stages_definition["stage dependant costs"].append(cost)
+        self.stages_definition["stage dependant costs"].append(orientation_costs)
 
     def getFullTrajectory_display(self):
         target = self.spline.interpolate_pose(0)
@@ -355,6 +360,10 @@ class GlueStageFactory(BaseStageFactory):
         return traj
 
 class Visualization():
+    """
+    Class used to visualize the results of a MPC run
+    """
+
     def __init__(self,  mpc : MPC):
         self.mpc = mpc
         self.robot = self.mpc.robot
@@ -363,6 +372,10 @@ class Visualization():
         self._instanciateVizer()
 
     def _instanciateVizer(self):
+        """
+        Instanciates the viewer and show the start pose of the robot
+        """
+
         self.vizer = ViserVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
         self.vizer.initViewer(open=False, loadModel=True)
         self.vizer.viewer.scene.add_grid(
@@ -377,6 +390,10 @@ class Visualization():
         time.sleep(10)
 
     def display(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
+        """
+        Displays the traj in meshcat as well as graphs #todo splits the graphs
+        """
+
         # add waypoints to the vizualisation:
         waypoints = self.mpc.waypoints
         self.vizer.viewer.scene.add_spline_catmull_rom(
@@ -527,27 +544,27 @@ class Params():
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
-        self.mpc_max_iter : int = 2
+        self.mpc_max_iter : int = 1
         self.solver_tolerance = 1e-7
-        self.solver_rollout_type = aligator.ROLLOUT_LINEAR
+        self.solver_rollout_type = aligator.ROLLOUT_NONLINEAR
         self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
         self.mu_init = 1e-7
         self.verbose = aligator.VerboseLevel.QUIET #or VERBOSE
 
         # Weights:
-        self.joint_reg_cost = 1e-10 #1e-4
-        self.vel_reg_cost = 1e-4
-        self.command_reg_cost = 1e-4
-        self.term_state_reg_cost = 1e-4
-        self.waypoint_x_weight = 1e-4
+        self.joint_reg_cost = 1 #1e-4
+        self.vel_reg_cost = 1
+        self.command_reg_cost = 1
+        self.term_state_reg_cost = 1
+        self.waypoint_x_weight = 1
         self.waypoint_frame_pos_weight = 100.0
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 50
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
-        self.vel_start = 0.1
-        self.vel_spread = 0.1
+        self.vel_start = 1
+        self.vel_spread = 0.5
 
     def __repr__(self)->str:
         """
@@ -580,14 +597,14 @@ class Params():
                 f'\n\tOrientation: {self.orientation_weight}\n'\
 
 if __name__ == "__main__":
-    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
-    positions :list = []
-    for i in range (len(x)):
-        positions.append(np.array([x[i], y[i], z[i]]))
-    print("num de positions:" + str(len(positions)))
+    # patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
+    # x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
+    # positions :list = []
+    # for i in range (len(x)):
+    #     positions.append(np.array([x[i], y[i], z[i]]))
+    # print("num de positions:" + str(len(positions)))
 
-    # positions = [np.array([0.5, 0.0, 0]), np.array([0.5, 0.5, 0])]
+    positions = [np.array([0.5, 0.0, 0]), np.array([0.5, 0.5, 0])]
 
                 # np.array([ 0.5, 0.0, 0.5]),
                 # np.array([0.35, 0.35, 0.5]),
