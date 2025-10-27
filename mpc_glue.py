@@ -20,16 +20,16 @@ import time
 
 class ArgsBase(tap.Tap):
     display: bool = False  # Display the trajectory using meshcat
-    plot: bool = False
-class Args(ArgsBase): # TODO add
-    plot:bool = True
-    bounds: bool = False
-    collisions: bool = False
+
+class Args(ArgsBase):
     debug : bool = False
-    joints_limits : bool = False
     viz_traj : bool = False
     perturbate : bool = False
-    orientation : bool = False
+    orientation_cost : bool = False
+
+    no_joints_lim: bool = False
+    no_torque_lim: bool = False
+    no_orientation_cost : bool = True #! Toggled OFF by default for now
 
 args = Args().parse_args()
 
@@ -61,12 +61,16 @@ class MPC():
 
         self.discrete_dynamics = self.calcDiscreteDynamics()
         self.stage_factory = GlueStageFactory(self.robot, self.space, self.parameters.n_total_steps, self.discrete_dynamics, waypoints)
+        print(self.stage_factory.getFullTrajectory_3n())
 
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
         self.u_max = self.stage_factory.u_max
 
     def mpcLoop(self):
+        """
+        Simulates a MPC running for a total of `self.parameters.total_time` seconds
+        """
         solver, callback = self.instanciateSolver()
 
         final_results_xs = [self.x0] # add the start state
@@ -77,15 +81,8 @@ class MPC():
 
         print("Starting MPC loop")
         for t in range (self.parameters.n_total_steps):
-            # solver = aligator.SolverProxDDP(self.parameters.solver_tolerance, self.parameters.mu_init, max_iters=self.parameters.mpc_max_iter, verbose=self.parameters.verbose)
-            # solver.rollout_type = self.parameters.solver_rollout_type
-            # solver.sa_strategy = self.parameters.solver_sa_strategy
-            # callback = aligator.HistoryCallback(solver)
-            # solver.registerCallback("his", callback)
 
-
-            # if args.debug:
-            print("t: "+ str(t))
+            print("t: "+ str(t)) #! debug
             start = time.time()
             if t == 0:
                 # first iteration
@@ -119,9 +116,6 @@ class MPC():
                 lams = lams[1:]
                 lams.append(lams[-1])
 
-
-
-
                 if args.perturbate:
                     xs[0] = np.add(xs[0], np.random.rand(18)*0.008) # pertubation on the state (max without exploding is ~0.01)
 
@@ -131,8 +125,9 @@ class MPC():
 
             final_results_us.append(results.us.tolist()[0])
             final_results_xs.append(results.xs.tolist()[0])
-            prim_infeas.append(callback.dual_infeas.tolist()[-1])
-            dual_infeas.append(callback.prim_infeas.tolist()[-1])
+            if len(callback.dual_infeas.tolist()) > 0:
+                prim_infeas.append(callback.dual_infeas.tolist()[-1])
+                dual_infeas.append(callback.prim_infeas.tolist()[-1])
             loop_times.append(stop-start)
 
         return final_results_us, final_results_xs, prim_infeas, dual_infeas, loop_times
@@ -146,7 +141,7 @@ class MPC():
 
     def run_solver(self, solver, problem, *, us, xs, lams, vs):
         """
-        Runs the solver over 'max_iters' iterations
+        Runs the solver over 'max_iters' iterations (
         """
         solver.preg_ = 1e-09
         solver.reg_init = 1e-09
@@ -201,14 +196,18 @@ class BaseStageFactory():
         self.problem : aligator.TrajOptProblem = None
 
         # Add base costs & constraints present in all problems:
-        self._addJointsLimitsConstraints()
-        self._addTorqueLimitsConstraints()
+        if not args.no_joints_lim:
+            self._addJointsLimitsConstraints()
+        if not args.no_torque_lim:
+            self._addTorqueLimitsConstraints()
+
         self._addRegulationCosts()
 
     def fabricateStages(self, current_stage, duration):
         """
-        Builds the stages from `current_stage` to `duration`
+        Builds the stages from `current_stage` to `duration` using the costs stored in `self.stages_definition`
         """
+
         terminal_coststack = aligator.CostStack(self.space, self.nu)
         for terminal_cost in self.stages_definition["terminal costs"]:
             terminal_coststack.addCost(*terminal_cost)
@@ -243,7 +242,7 @@ class BaseStageFactory():
             if np.isneginf(q_min) and np.isinf(q_max):
                 continue
 
-            # print(f"Adding BoxConstraint for Joint '{jn}': [{q_min:.3f}, {q_max:.3f}]")
+            # print(f"Adding BoxConstraint for Joint '{jn}': [{q_min:.3f}, {q_max:.3f}]") #! debug
 
             A = np.zeros((1, self.ndx))
             A[0, q_idx_in_x] = 1.0
@@ -314,7 +313,9 @@ class GlueStageFactory(BaseStageFactory):
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
         self.spline = SplineGenerator(start_pos, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
         self._addWaypointCosts()
-        # self._addOrientationCosts()
+
+        if not args.no_orientation_cost:
+            self._addOrientationCosts()
 
     def _addWaypointCosts(self):
         """
@@ -327,14 +328,10 @@ class GlueStageFactory(BaseStageFactory):
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
-            frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, v_ref, tool_id, pin.LOCAL)
 
             wt_x_term = np.zeros((self.ndx, self.ndx))
             wt_x_term[:] = self.parameters.waypoint_x_weight
             wt_frame_pos = self.parameters.waypoint_frame_pos_weight * np.eye(frame_pos_fn.nr)
-
-            wt_frame_vel = self.parameters.waypoint_frame_vel_weight* np.ones(frame_vel_fn.nr)
-            wt_frame_vel = np.diag(wt_frame_vel)
 
             cost = ("frame", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
 
@@ -381,6 +378,14 @@ class GlueStageFactory(BaseStageFactory):
 
         return traj
 
+    def getFullTrajectory_3n(self):
+        traj = []
+        for i in range(self.n_steps):
+            target = self.spline.interpolate_pose(i*self.parameters.dt)
+            traj.append(target)
+        return traj
+
+
 class Visualization():
     """
     Class used to visualize the results of a MPC run
@@ -404,7 +409,7 @@ class Visualization():
 
     def display(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
         """
-        Displays the traj in meshcat as well as graphs #todo splits the graphs
+        Displays the traj in meshcat as well as graphs #TODO splits the graphs to separate function
         """
         # add waypoints to the vizualisation:
         waypoints = self.mpc.waypoints
@@ -414,14 +419,13 @@ class Visualization():
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
 
-        # for i in range(len(waypoints)):
-        #     target_place = pin.SE3.Identity()
-        #     target_place.translation = waypoints[i]
-        #     target_object = pin.GeometryObject("waypoint_"+str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.01), target_place)
-        #     self.vizer.addGeometryObject(target_object, [0.5, 0.5, 1.0, 0.5])
-
-        # add trajectory executed to the vizualisation: EDIT : toggled because of lag
+        # add trajectory executed to the vizualisation: EDIT : toggled because num of waypoitns induced lag in viz
         if args.viz_traj:
+            for i in range(len(waypoints)):
+                target_place = pin.SE3.Identity()
+                target_place.translation = waypoints[i]
+                target_object = pin.GeometryObject("waypoint_"+str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.01), target_place)
+                self.vizer.addGeometryObject(target_object, [0.5, 0.5, 1.0, 0.5])
             for i in range(pts.T.shape[1]):
                 target_place = pin.SE3.Identity()
                 target_place.translation = np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])])
@@ -429,6 +433,7 @@ class Visualization():
                         "exec_traj_" + str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.005), target_place
                     )
                 self.vizer.addGeometryObject(target_object, [1, 0, 0, 0.5])
+
 
         times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
 
@@ -474,23 +479,24 @@ class Visualization():
         ax.set_ylabel("$y$")
         ax.set_zlabel("$z$")
 
+        # ! messing with results output: toggling off ==========================
         # Primal and dual error plot
-        plt.figure(2)
-        plt.subplot(2,1,1)
-
+        # plt.figure(2)
+        # plt.subplot(2,1,1)
         # nrang = range(1, self.results.num_iters + 1)
-        ax: plt.Axes = plt.gca()
-        plt.plot(times, prim_infeas, ls="--", marker=".", label="primal error")
-        plt.plot(times, dual_infeas, ls="--", marker=".", label="dual error")
-        ax.set_xlabel("Stage number")
-        ax.set_yscale("log")
-        plt.legend()
-        plt.tight_layout()
-        plt.subplot(212)
-        ax: plt.Axes = plt.gca()
-        plt.plot(times[1:], mpc_loop_times, marker=".", color="dodgerblue", label="Calculation time ")
-        ax.set_xlabel("MPC loop for t")
-        ax.set_ylabel("Calculation time (secs)")
+        # ax: plt.Axes = plt.gca()
+        # plt.plot(times, prim_infeas, ls="--", marker=".", label="primal error")
+        # plt.plot(times, dual_infeas, ls="--", marker=".", label="dual error")
+        # ax.set_xlabel("Stage number")
+        # ax.set_yscale("log")
+        # plt.legend()
+        # plt.tight_layout()
+        # plt.subplot(212)
+        # ax: plt.Axes = plt.gca()
+        # plt.plot(times[1:], mpc_loop_times, marker=".", color="dodgerblue", label="Calculation time ")
+        # ax.set_xlabel("MPC loop for t")
+        # ax.set_ylabel("Calculation time (secs)")
+
 
         # joints limit plot
         fig, ax = plt.subplots(4,2,sharex=True)
@@ -553,7 +559,7 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 10
+        self.total_time : int|float = 1
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
@@ -617,6 +623,7 @@ if __name__ == "__main__":
     for i in range (len(x)):
         positions.append(np.array([x[i], y[i], z[i]]))
 
+# ! debug ======================================================================
     # print(f'Positions: \n{positions}')
     # print("num de positions:" + str(len(positions)))
 
@@ -637,6 +644,7 @@ if __name__ == "__main__":
     #             np.array([0.35, -0.35,  0.5]),
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
+# ! ============================================================================
 
     mpc = MPC(positions)
     final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
