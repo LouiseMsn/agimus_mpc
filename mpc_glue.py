@@ -67,7 +67,6 @@ class MPC():
 
         self.discrete_dynamics = self.calcDiscreteDynamics()
         self.stage_factory = GlueStageFactory(self.robot, self.space, self.parameters.n_total_steps, self.discrete_dynamics, waypoints)
-        # print(self.stage_factory.getFullTrajectory_3n())
 
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
@@ -431,12 +430,14 @@ class MPC():
 
             current_xs = deepcopy(results.xs.tolist()[0])
             current_us = deepcopy(results.us.tolist()[0])
-            print(f'current xs: {current_xs}')
+            last_dual_infeas = deepcopy(callback.dual_infeas.tolist()[-1])
+            last_prim_infeas = deepcopy(callback.prim_infeas.tolist()[-1])
+            # print(f'current xs: {current_xs}')
             final_results_us.append(current_us)
             final_results_xs.append(current_xs)
             # if len(callback.dual_infeas.tolist()) > 0:
-            #     prim_infeas.append(callback.dual_infeas.tolist()[-1])
-            #     dual_infeas.append(callback.prim_infeas.tolist()[-1])
+            prim_infeas.append(last_dual_infeas)
+            dual_infeas.append(last_prim_infeas)
             loop_times.append(stop-start)
 
             # ! debug ==========================================================
@@ -512,9 +513,11 @@ class BaseStageFactory():
 
         # Add base costs & constraints present in all problems:
         if not args.no_joints_lim:
+
             self._addJointsLimitsConstraints()
         if not args.no_torque_lim:
             self._addTorqueLimitsConstraints()
+
 
         self._addRegulationCosts()
 
@@ -588,22 +591,10 @@ class BaseStageFactory():
         stages = []
         for stage_num in range(current_stage, duration + current_stage):
             stage_coststack = aligator.CostStack(self.space, self.nu)
-            # cost_list = self._getDynamicCosts(stage_num)
-            # # print(f'Waypoints costs list stage n°{stage_num}: {cost_list}')
-            # for cost in cost_list:
-            #     stage_coststack.addCost(*cost)
-
-# WAYPOINT A LA MAIN ===========================================================
-            tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
-            nv = self.robot.model.nv
-            nu = nv
-            ndx = self.space.ndx
-            target_pos = np.array([0.2, 0, 0])
-            frame_pos_fn = aligator.FrameTranslationResidual(ndx, nu, self.robot.model, target_pos, tool_id)
-            wt_frame_pos = 100.0 * np.eye(frame_pos_fn.nr)
-
-            stage_coststack.addCost("frame", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
-# ==============================================================================
+            cost_list = self._getDynamicCosts(stage_num)
+            # print(f'Waypoints costs list stage n°{stage_num}: {cost_list}')
+            for cost in cost_list:
+                stage_coststack.addCost(*cost)
 
             stage_model = aligator.StageModel(stage_coststack, self.discrete_dynamics)
             for constraint in self.stages_definition["constraints"]:
@@ -715,8 +706,7 @@ class GlueStageFactory(BaseStageFactory):
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
-            # target_pos = self.spline.interpolate_pose(t*self.parameters.dt)
-            target_pos = np.array([0.5,0,0])
+            target_pos = self.spline.interpolate_pose(t*self.parameters.dt)
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
@@ -770,7 +760,7 @@ class GlueStageFactory(BaseStageFactory):
 
         return traj
 
-    def getFullTrajectory_3n(self):
+    def getFullTrajectory_pt_by_pt(self):
         traj = []
         for i in range(self.n_steps):
             target = self.spline.interpolate_pose(i*self.parameters.dt)
@@ -799,58 +789,66 @@ class Visualization():
                                             height=20.0,
                                             position=np.array([0.0, 0.0, 0]),
                                             )
-        # ! MESHCAT ============================================================
-        # self.vizer = MeshcatVisualizer(self.robot.model, self.robot.collision_model, self.robot.visual_model, data=self.robot.data)
-        # self.vizer.initViewer(open=False, loadModel=True)
-        # self.vizer.setBackgroundColor(col_top=[1, 0.796, 0.529], col_bot=[0.427, 0.471, 0.929])
-        # ! ====================================================================
+
         self.vizer.display(self.mpc.q0)
-        # self.mpc.stage_factory.getFullTrajectory()
         time.sleep(10)
 
-    def display(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
+    def display(self, xs,):
         """
         Displays the traj in meshcat as well as graphs #TODO splits the graphs to separate function
         """
-        # add waypoints to the vizualisation:
+
+        waypoints = self.mpc.waypoints
+        xs_opt = xs
+        xs = np.array(xs)
+        qs = xs[:,:self.mpc.n_q]
+        pts = self.get_endpoint_traj(xs_opt)
+
+        traj_executed = []
+        for i in range(pts.T.shape[1]):
+            traj_executed.append(np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])]))
+
+
+
+        self.vizer.viewer.scene.add_spline_catmull_rom(
+                                                        "Output traj",
+                                                        points=traj_executed,
+                                                        tension=0.5,
+                                                        line_width=3.0,
+                                                        color=np.array([6, 117, 255]),
+                                                        segments=100,
+                                                        )
+        self.vizer.viewer.scene.add_spline_catmull_rom(
+                                                        "Input traj",
+                                                        points=self.mpc.stage_factory.getFullTrajectory_pt_by_pt(),
+                                                        tension=0.5,
+                                                        line_width=2.0,
+                                                        color=np.array([255, 105, 105]),
+                                                        segments=100,
+        )
+
+
+        input("[Press enter]")
+        num_repeat = 10
+
+        qs = [x[:self.mpc.n_q] for x in xs_opt]
+
+        for i in range(num_repeat):
+
+            start = time.time()
+            self.vizer.play(qs, self.mpc.parameters.dt)
+            stop = time.time()
+            print("Playing time: " + str(stop - start))
+
+            time.sleep(3)
+
+    def plotResults(self, xs, us, prim_infeas, dual_infeas, mpc_loop_times):
         waypoints = self.mpc.waypoints
         xs_opt = xs
         us_opt = np.asarray(us)
         xs = np.array(xs)
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
-
-
-        traj_executed = []
-        for i in range(pts.T.shape[1]):
-            traj_executed.append(np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])]))
-
-            self.vizer.viewer.scene.add_spline_catmull_rom(
-            "Output traj",
-            points=traj_executed,
-            tension=0.5,
-            line_width=3.0,
-            color=np.array([6, 117, 255]),
-            segments=100,
-        )
-
-        # ! MESHCAT ============================================================
-        # add trajectory executed to the vizualisation: EDIT : toggled because num of waypoitns induced lag in viz
-        # if args.viz_traj:
-        #     for i in range(len(waypoints)):
-        #         target_place = pin.SE3.Identity()
-        #         target_place.translation = waypoints[i]
-        #         target_object = pin.GeometryObject("waypoint_"+str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.01), target_place)
-        #         self.vizer.addGeometryObject(target_object, [0.5, 0.5, 1.0, 0.5])
-        #     for i in range(pts.T.shape[1]):
-        #         target_place = pin.SE3.Identity()
-        #         target_place.translation = np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])])
-        #         target_object = pin.GeometryObject(
-        #                 "exec_traj_" + str(i), self.mpc.world_frame_id, self.mpc.world_joint_id, hppfcl.Sphere(0.005), target_place
-        #             )
-        #         self.vizer.addGeometryObject(target_object, [1, 0, 0, 0.5])
-        # ! ====================================================================
-
         times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
 
         fig: plt.Figure = plt.figure(constrained_layout=True)
@@ -885,33 +883,33 @@ class Visualization():
                 ax.set_xlabel("time", loc="left", fontsize=fontsize)
 
         ax = plt.subplot(gs[0, 1], projection="3d")
-        ax.plot(*pts.T, lw=1.0) # actual traj
-        # ax.plot(*self.mpc.stage_factory.getFullTrajectory(), "m", lw=1, alpha=0.7) # command trajectory
+        ax.plot(*pts.T, "r", lw=1.0, label="Actual traj") # actual traj
+        ax.plot(*self.mpc.stage_factory.getFullTrajectory(), "g", lw=1, alpha=0.7, label="Command traj") # command trajectory
 
-        # for waypoint in self.mpc.waypoints:
-        #     ax.scatter(*waypoint, marker="^", c="r")
+        for waypoint in self.mpc.waypoints:
+            ax.scatter(*waypoint, marker="^", c="b",alpha=0.5,s=10)
 
         ax.set_xlabel("$x$")
         ax.set_ylabel("$y$")
         ax.set_zlabel("$z$")
+        ax.set(xlim=(0, 0.5), ylim=(-0.5, 0.5), zlim=(0, 0.5))
+        ax.legend()
 
-        # ! messing with results output: toggling off ==========================
         # Primal and dual error plot
-        # plt.figure(2)
-        # plt.subplot(2,1,1)
-        # nrang = range(1, self.results.num_iters + 1)
-        # ax: plt.Axes = plt.gca()
-        # plt.plot(times, prim_infeas, ls="--", marker=".", label="primal error")
-        # plt.plot(times, dual_infeas, ls="--", marker=".", label="dual error")
-        # ax.set_xlabel("Stage number")
-        # ax.set_yscale("log")
-        # plt.legend()
-        # plt.tight_layout()
-        # plt.subplot(212)
-        # ax: plt.Axes = plt.gca()
-        # plt.plot(times[1:], mpc_loop_times, marker=".", color="dodgerblue", label="Calculation time ")
-        # ax.set_xlabel("MPC loop for t")
-        # ax.set_ylabel("Calculation time (secs)")
+        plt.figure(2)
+        plt.subplot(2,1,1)
+        ax: plt.Axes = plt.gca()
+        plt.plot(times, prim_infeas, ls="--", marker=".", label="primal error")
+        plt.plot(times, dual_infeas, ls="--", marker=".", label="dual error")
+        ax.set_xlabel("Stage number")
+        ax.set_yscale("log")
+        plt.legend()
+        plt.tight_layout()
+        plt.subplot(212)
+        ax: plt.Axes = plt.gca()
+        plt.plot(times[1:], mpc_loop_times, marker=".", color="dodgerblue", label="Calculation time ")
+        ax.set_xlabel("MPC loop time for t")
+        ax.set_ylabel("Calculation time (secs)")
 
 
         # joints limit plot
@@ -930,21 +928,6 @@ class Visualization():
             current_ax = next(ax)
 
         plt.show()
-
-        if args.display:
-            input("[Press enter]")
-            num_repeat = 10
-
-            qs = [x[:self.mpc.n_q] for x in xs_opt]
-
-            for i in range(num_repeat):
-
-                start = time.time()
-                self.vizer.play(qs, self.mpc.parameters.dt)
-                stop = time.time()
-                print("Playing time: " + str(stop - start))
-
-                time.sleep(3)
 
     def get_endpoint_traj(self, xs: List[np.ndarray]):
         """
@@ -975,7 +958,7 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 2
+        self.total_time : int|float = 6
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
@@ -987,16 +970,16 @@ class Params():
         self.verbose = aligator.VerboseLevel.VERBOSE # QUIET or VERBOSE
 
         # Weights:
-        self.joint_reg_cost = 1e-4 #1e-4
-        self.vel_reg_cost = 1e-4
-        self.command_reg_cost = 1e-4
+        self.joint_reg_cost = 1e-2 #1e-4
+        self.vel_reg_cost = 1e-2
+        self.command_reg_cost = 1e-2
         self.term_state_reg_cost = 1e-4
         self.waypoint_x_weight = 1e-4
         self.waypoint_frame_pos_weight = 100
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 1
-        self.vel_spread = 0.01
-        self.vel_start = 0.01
+        self.vel_spread = 0.5
+        self.vel_start = 0.5
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
@@ -1033,18 +1016,18 @@ class Params():
                 f'\n\tOrientation: {self.orientation_weight}\n'\
 
 if __name__ == "__main__":
-#     patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.2))
-#     x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
-#     positions :list = []
-#     for i in range (len(x)):
-#         positions.append(np.array([x[i], y[i], z[i]]))
+    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0))
+    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
+    positions :list = []
+    for i in range (len(x)):
+        positions.append(np.array([x[i], y[i], z[i]]))
 
  # ! debug ======================================================================
     # print(f'Positions: \n{positions}')
     # print("num de positions:" + str(len(positions)))
 
-    positions = [np.array([0.5, 0.0, 0.2]),
-                np.array([ 0.5, 0.0, 0.5])]
+    # positions = [np.array([0.5, 0.0, 0.2]),
+    #             np.array([ 0.5, 0.0, 0.5])]
                 # ,
     #             np.array([0.35, 0.35, 0.5]),
     #             np.array([0.35, 0.35, 0.2]),
@@ -1069,4 +1052,5 @@ if __name__ == "__main__":
     final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
     # final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.loneRun()
     viz = Visualization(mpc)
-    viz.display(final_results_xs, final_results_us, prim_infeas, dual_infeas, mpc_loop_times)
+    viz.plotResults(final_results_xs, final_results_us, prim_infeas, dual_infeas, mpc_loop_times)
+    viz.display(final_results_xs)
