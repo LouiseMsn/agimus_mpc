@@ -6,25 +6,6 @@ from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import interp1d, RBFInterpolator
 
 
-# class SplineGenerator:
-#     def __init__(self, waypoints, duration, kernel='cubic'):
-#         if len(waypoints) < 2:
-#             raise ValueError("At least two waypoints are required.")
-#         self.waypoints = np.array(waypoints)
-#         self.duration = duration
-#         self.time = np.linspace(0, duration, len(waypoints))[:, None]  # (N, 1)
-#         self.rbf = RBFInterpolator(self.time, self.waypoints, kernel=kernel)
-
-#     def interpolate(self, t):
-#         """Return interpolated position at time t (clamped to [0, duration])"""
-#         if t <= 0:
-#             return self.waypoints[0]
-#         if t >= self.duration:
-#             return self.waypoints[-1]
-#         return self.rbf(np.array([[t]]))[0]  # Output is (1,3)
-
-# ==============================================================================
-
 class PatternGenerator:
     """
     A class to generate patterns for glue spreading.
@@ -231,7 +212,7 @@ class PatternGenerator:
         Args:
             stride (float): espacement entre chaque "tour"
 
-        Retourne:
+        Returns:
             x, y, z: listes des coordonnées des points de la spirale
         """
         # Initialisation
@@ -294,86 +275,11 @@ class PatternGenerator:
 
         return x, y, z
 
-    # def transform_trajectory(self, traj, translation, rotation):
-    #     """
-    #     Applique une transformation c>omplète (rotation + translation)
-    #     à une trajectoire exprimée en position dans le repère de tf.header.frame_id.
-
-    #     - traj : tuple de listes (x_list, y_list, z_list)
-    #     - tf : TransformStamped représentant la pose cible (rotation + translation)
-
-    #     Retourne : liste de points transformés [(x', y', z'), ...]
-    #     """
-    #     transformed = []
-
-    #     # Récupère quaternion et translation du TransformStamped
-    #     q = rotation
-    #     t = translation
-    #     quat = [q.x, q.y, q.z, q.w]
-    #     trans = np.array([t.x, t.y, t.z])
-
-    #     # Matrice de transformation 4x4
-    #     T = np.eye(4)
-    #     T[:3, :3] = tf_transformations.quaternion_matrix(quat)[:3, :3]
-    #     T[:3, 3] = trans
-
-    #     for i, (x, y, z) in enumerate(zip(*traj)):
-    #         # homogénéisation du point
-    #         point = np.array([x, y, z, 1.0])
-    #         transformed_point = T @ point
-    #         transformed.append(tuple(transformed_point[:3]))
-
-    #     return transformed
-
-
-class SplineGenerator_no_vel:
-    def __init__(self, waypoints, start_pos, duration, kernel='cubic'):
-        waypoints.insert(0,start_pos)
-        if len(waypoints) < 2:
-            raise ValueError("At least two waypoints are required.")
-        self.waypoints = np.array(waypoints)
-        self.duration = duration
-        self.time = np.linspace(0, duration, len(waypoints))[:, None]  # Shape: (N, 1)
-        self.rbf = RBFInterpolator(self.time, self.waypoints, kernel=kernel)
-        self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])  # Default to 0 yaw
-
-    def interpolate_pose(self, t):
-        """Return interpolated position at time t (clamped to [0, duration])"""
-        t = np.clip(t, 0.0, self.duration)
-        return self.rbf(np.array([[t]]))[0]  # Shape: (3,)
-
-    def interpolate_ori(self, t, dt=0.01):
-        """
-        Compute the orientation based on the tangent (direction) of the trajectory.
-
-        Args:
-            t (float): current time
-            dt (float): small time increment for computing direction vector
-
-        Returns:
-            orientation (np.array): [roll, pitch, yaw] in radians
-        """
-        t = np.clip(t, 0.0, self.duration - dt)
-        t_next = np.clip(t + dt, dt, self.duration)
-
-        current_point = self.rbf(np.array([[t]]))[0]
-        next_point = self.rbf(np.array([[t_next]]))[0]
-        direction_vector = next_point - current_point
-
-
-        # Compute yaw angle from the direction in XY plane
-        roll = 0.0
-        pitch = 0.0
-        yaw = np.arctan2(direction_vector[1], direction_vector[0])
-
-
-        self.last_valid_orientation_ref = np.array([roll, pitch, yaw])
-        return self.last_valid_orientation_ref
-
-# ==============================================================================
-
 
 class SplineGenerator:
+    """
+    Class that interpolates the `waypoints` into a spline and calculates the orientation between them so that the X axis faces the nex waypoint and the Z axis faces downward
+    """
     def __init__(self, start_pos, start_ori, waypoints,
                  v_start=1.0, v_spread=1.0,
                  start_kernel='linear', spread_kernel='cubic'):
@@ -393,26 +299,34 @@ class SplineGenerator:
         self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])
         self.t_total = 0
 
-        self._compute_times()
-        self.compute_full_traj()
-        self.compute_full_ori()
+        self._compute_and_set_times()
+        self._compute_full_traj()
+        self._compute_full_ori()
 
-    def _compute_times(self):
+    def _compute_and_set_times(self):
+        """
+        Computes the time it will take to execute the start, spread and total trajectories
+        Args:
+            None
+        Returns:
+            None
+        Sets:
+            self.t_start : (float) time from the current pose of the end effector `self.start_pos` to the first waypoint `waypoint[0]` at a `self.v_start` speed
+            self.t_spread : (float) time from the first waypoint to the last at a `self.v_spread` speed
+            self.t_total : (float) time of the complete trajectory
+        """
         # Distance for first segment
         d_start = np.linalg.norm(self.waypoints[0] - self.start_pos)
         t_start = d_start / self.v_start
-
-        # print("time to go from start to waypoint 0 " + str(t_start))
 
         # Distances for the spread segment
         d_spread = np.sum([
             np.linalg.norm(self.waypoints[i+1] - self.waypoints[i])
             for i in range(len(self.waypoints) - 1)
         ])
-        # print("dspread " + str(d_spread))
+
         t_spread = d_spread / self.v_spread
 
-        # print("t for spread waypoints: " + str(t_spread))
         # Save time partitions
         self.t_start = t_start
         self.t_total = t_start + t_spread
@@ -420,86 +334,155 @@ class SplineGenerator:
         # Create time arrays for both segments
         self.time_start = np.array([0.0, self.t_start])[:, None]
         self.time_spread = np.linspace(self.t_start, self.t_total, len(self.waypoints))[:, None]
-        # print("time start : " + str(self.time_start))
-        # print("time spread : " + str(self.time_spread))
 
-    def compute_start_trj(self):
+    def _compute_start_trj(self):
+        """
+        Initiates the interpolator for the trajectory between the start pose and the first waypoint
+
+        Args:
+            None
+        Returns:
+            None
+        Sets:
+            self.start_traj (RBFInterpolator)
+        """
         points = np.vstack([self.start_pos, self.waypoints[0]])
         self.start_traj = RBFInterpolator(self.time_start, points, kernel=self.start_kernel)
 
-    def compute_spread_traj(self):
+    def _compute_spread_traj(self):
+        """
+        Initiates the interpolator for the trajectory between the first waypoint and the last
+
+        Args:
+            None
+        Returns:
+            None
+        Sets:
+            self.spread_traj (RBFInterpolator)
+        """
         points = self.waypoints[0:]
         self.spread_traj = RBFInterpolator(self.time_spread, points, kernel=self.spread_kernel)
 
-    def compute_full_traj(self):
-        self.compute_start_trj()
-        self.compute_spread_traj()
+    def _compute_full_traj(self):
+        """
+        Initiates the interpolators for the trajectory between the start pose and the first waypoint and between the first waypoint and the last.
 
-    def interpolate_pose(self, t):
+        Args:
+            None
+        Returns:
+            None
+        Sets:
+            self.start_traj : (RBFInterpolator) interpolator for the pose of the start trajectory
+            self.spread_traj : (RBFInterpolator) interpolator for the pose of the spread trajectory
+        """
+        self._compute_start_trj()
+        self._compute_spread_traj()
+
+    def get_interpolated_pose(self, t):
+        """
+        Returns the pose of the end effector at a given `t` (secs)
+        Args:
+            t : time in seconds (float)
+        Returns:
+            pose : (list[float]) pose of end effector for t
+        Sets:
+            None
+        """
         t = np.clip(t, 0.0, self.t_total)
         if t <= self.t_start:
             return self.start_traj(np.array([[t]]))[0]
         else:
             return self.spread_traj(np.array([[t]]))[0]
 
-
-
-
-
-
-    def compute_start_orientation(self,spread_orientations):
+    def _compute_start_orientation(self, spread_orientations):
+        """
+        Instanciates the interpolator from the start orientation to the orientation of the first pattern waypoint
+        Args:
+            spread_orientations : list of the orientations for the spreading part of the trajectory
+        Returns:
+            None
+        Sets:
+            start_ori_traj : (RBFInterpolator) interpolator for the orientation of the start trajectory
+        """
         orientations = np.vstack((self.start_ori, spread_orientations[0]))
         self.start_ori_traj = RBFInterpolator(self.time_start, orientations, kernel=self.start_kernel)
 
-        # points = np.vstack([self.start_pos, self.waypoints[0]])
-        # orientations = []
-        # for i in range(len(points)-1):
-        #     orientations.append(self.compute_local_orientation(points[i], points[i+1]))
-        # return orientations
-
-
-    def compute_spread_orientation(self):
+    def _compute_spread_orientation(self):
+        """
+        Computes the orientation of the end effector waypoint by waypoint so that the X axis points to the next waypoint and the Z axis points down.
+        Also initializes the interpolator between the first waypoint to the last.
+        Args:
+            None
+        Returns:
+            spread_orientations : (list[float]) list of orientations for the spread part of the trajectory
+        Sets:
+            start_ori_traj : (RBFInterpolator) interpolator for the orientation of the spread trajectory
+        """
         points = self.waypoints[0:]
         spread_orientations = []
         for i in range(len(points)-1):
-            spread_orientations.append(self.compute_local_orientation(points[i], points[i+1]))
+            spread_orientations.append(self._compute_local_orientation(points[i], points[i+1]))
         spread_orientations.append(spread_orientations[-1]) # repeat last orientation to match the number of waypoints
         print(len(self.time_spread))
         print(len(spread_orientations))
         self.spread_ori_traj = RBFInterpolator(self.time_spread, spread_orientations, kernel=self.spread_kernel)
         return spread_orientations
 
-    # def compute_orientation(self):
-    #     points = np.vstack([self.start_pos, self.waypoints])
-    #     orientations = []
-    #     for i in range(len(points)-1):
-    #         orientations.append(self.compute_local_orientation(points[i], points[i+1]))
-    #     # self.start_traj = RBFInterpolator(self.time_total, orientations, kernel=self.start_kernel) #!
-
-    #     return orientations
-
-    def compute_local_orientation(self, current_point, next_point):
+    def _compute_local_orientation(self, current_point, next_point):
+        """
+        Computes the orientation between two points so that the X axis points from the `current_point` to the `next_point` and the Z axis points down
+        Args:
+            None
+        Returns:
+            orientation : (list[float]) Roll Pitch Yaw orientation of the effector
+        Sets:
+            None
+        """
         direction_vector = next_point - current_point
-        roll = np.pi #!
+        roll = np.pi
         pitch = 0
         yaw = np.arctan2(direction_vector[1], direction_vector[0])
         orientation = np.array([roll, pitch, yaw])
         return orientation
 
+    def _compute_full_ori(self):
+        """
+        Computes the orientation for the full trajectory
+        Args:
+            None
+        Returns:
+            None
+        Sets:
+            None
+        """
+        spread_ori = self._compute_spread_orientation()
+        self._compute_start_orientation(spread_ori)
 
-    def compute_full_ori(self):
-        spread_ori = self.compute_spread_orientation()
-        self.compute_start_orientation(spread_ori)
-
-    def interpolate_ori(self,t):
+    def get_interpolated_ori(self,t):
+        """
+        Returns the orientation of the end effector at a given `t` (secs)
+        Args:
+            t : time in seconds (float)
+        Returns:
+            orientation : (list[float]) Roll Pitch Yaw of the end effector
+        Sets:
+            None
+        """
         t = np.clip(t, 0.0, self.t_total)
         if t <= self.t_start:
             return self.start_ori_traj(np.array([[t]]))[0]
         else:
             return self.spread_ori_traj(np.array([[t]]))[0]
 
-
 def RPY2Mat(roll,pitch,yaw):
+    """
+    Converts a rotation in roll pitch yaw to a rotation matrix. # TODO Pin function?
+    Args:
+        roll, pitch, yaw : (float)
+    Returns:
+        R : (np.array 3x3) Rotation matrix
+    """
+
     Rz = np.array([
                 [np.cos(yaw), -np.sin(yaw), 0],
                 [np.sin(yaw), np.cos(yaw), 0],
@@ -520,6 +503,13 @@ def RPY2Mat(roll,pitch,yaw):
 
 
 def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
+    """
+    Draws 3 arrows in the `ax` plot showing XYZ pose and RPY rotation.
+    Args:
+        ax : (Axes) plot
+    Returns:
+        None
+    """
     origin = pose.translation
     R = pose.rotation
 
@@ -539,7 +529,6 @@ if __name__=="__main__":
     for i in range (len(x)):
         positions.append(np.array([x[i], y[i], z[i]]))
 
-    # print(waypoints)
     # positions = [np.array([0.5, 0.0, 0.2]),
     #             np.array([ 0.5, 0.0, 0.5]),
     #             np.array([0.35, 0.35, 0.5]),
@@ -558,49 +547,28 @@ if __name__=="__main__":
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
 
-
-    # print(positions)
-    # positions = [ np.array([1, 0,  0. ]), np.array([2,1,0]), np.array([3,0,0])]
-    # positions = [np.array([0.5, 0.0, 0.5])]
     duration = 7
-    # spline = SplineGenerator(positions, [0, 0, 1], duration, start_kernel='cubic', spread_kernel='cubic')
     start_pose = [ 3.33970764e-01, -3.08143602e-16,  5.40159383e-01]
     start_ori = [ 2.77295717, -0.34585912 , 0.85050551]
     spline = SplineGenerator(start_pose, start_ori, waypoints=positions)
-    # orientations = spline.compute_start_orientation()
-    # orientations_spread = spline.compute_spread_orientation()
-    # orientations.extend(orientations_spread)
 
-
-
+    # Debug of trajectory
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    # ax.scatter(positions[:, 0], positions[:, 1], positions[:, 2], label="Waypoints", color='red', s=50)
-
-    # positions = np.vstack([start, positions])
-    # for i in range(len(orientations)):
-    #     roll = orientations[i][0]
-    #     pitch = orientations[i][1]
-    #     yaw = orientations[i][2]
-    #     R = RPY2Mat(roll, pitch, yaw)
-    #     pose = pin.SE3(R, positions[i])
-    #     draw_frame(ax, pose)
-
-
     t = 0
     while t < spline.t_total:
-        orientation = spline.interpolate_ori(t)
+        orientation = spline.get_interpolated_ori(t)
         roll = orientation[0]
         pitch = orientation[1]
         yaw = orientation[2]
-        pose = spline.interpolate_pose(t)
+        pose = spline.get_interpolated_pose(t)
         R = RPY2Mat(roll, pitch, yaw)
         print((R))
         print((pose))
         pose_6d = pin.SE3(R, pose)
         draw_frame(ax, pose_6d)
         ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
-        t = t+0.02
+        t = t + 0.02
 
 
     ax.set_xlabel('X')
@@ -608,7 +576,6 @@ if __name__=="__main__":
     ax.set_zlabel('Z')
     ax.set_title("Interpolation position + orientation 3D (RBF)")
     ax.legend()
-    # ax.set_box_aspect([1, 1, 1])
     plt.tight_layout()
     plt.show()
 
@@ -621,10 +588,7 @@ if __name__=="__main__":
     #     traj.append(pose)
     #     # print("pose:" + str(pose))
     # traj = np.array(traj)
-
-
     # wp_pos = np.array(positions)
-
     # fig = plt.figure()
     # ax = fig.add_subplot(111, projection='3d')
     # ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], label="Trajectoire interpolée", marker=".", color='blue',alpha=0.5)
