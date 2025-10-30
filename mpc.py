@@ -20,6 +20,8 @@ import time
 
 from copy import deepcopy
 
+import eigenpy
+
 from pattern_precalc import pattern_201 as pattern
 
 class ArgsBase(tap.Tap):
@@ -33,7 +35,7 @@ class Args(ArgsBase):
 
     no_joints_lim: bool = False
     no_torque_lim: bool = False
-    no_orientation_cost : bool = True #! Toggled OFF by default for now
+    no_orientation_cost : bool = False #! Toggled OFF by default for now
     no_waypoints : bool = False
 
 
@@ -137,9 +139,6 @@ class MPC():
             rcost.addCost(
                 "frame", aligator.QuadraticResidualCost(self.space, frame_fn, wt_frame_pos)
             )
-            # rcost.addCost(
-            #     "vel", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel)
-            # )
 
             stm = aligator.StageModel(rcost, discrete_dynamics)
             stages.append(stm)
@@ -521,60 +520,60 @@ class BaseStageFactory():
 
         self._addRegulationCosts()
 
-    def hardcoded_stages(self, current_stage, duration):
+    # def hardcoded_stages(self, current_stage, duration):
 
 
-        n_v = self.robot.model.nv
-        nu = n_v
-        n_dx = self.space.ndx
-        tool_id = self.robot.model.getFrameId("panda_hand_tcp")
+    #     n_v = self.robot.model.nv
+    #     nu = n_v
+    #     n_dx = self.space.ndx
+    #     tool_id = self.robot.model.getFrameId("panda_hand_tcp")
 
-        wt_x = 1e-4 * np.ones(n_dx)
-        wt_x[n_v:] = 1e-2
-        wt_x = np.diag(wt_x)
-        wt_u = 1e-4 * np.eye(nu)
-        wt_x_term = wt_x.copy()
-        wt_x_term[:] = 1e-4
-        term_cost = aligator.CostStack(self.space, nu)
-        term_cost.addCost("reg", aligator.QuadraticCost(wt_x_term, wt_u * 0))
-
-
-        # dynamique
-        B_mat = np.eye(self.nu)
-        ode = dynamics.MultibodyFreeFwdDynamics(self.space, B_mat) # Ordinatry Diff Equation: resolution de l'équation de la dynamique
-        discrete_dynamics = dynamics.IntegratorSemiImplEuler(ode, self.parameters.dt)
-
-        target_pos=np.array([0.5, 0, 0])
-
-        stages = []
-        for stages_num in range (duration):
-            rcost = aligator.CostStack(self.space, self.nu)
-            rcost.addCost("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))
+    #     wt_x = 1e-4 * np.ones(n_dx)
+    #     wt_x[n_v:] = 1e-2
+    #     wt_x = np.diag(wt_x)
+    #     wt_u = 1e-4 * np.eye(nu)
+    #     wt_x_term = wt_x.copy()
+    #     wt_x_term[:] = 1e-4
+    #     term_cost = aligator.CostStack(self.space, nu)
+    #     term_cost.addCost("reg", aligator.QuadraticCost(wt_x_term, wt_u * 0))
 
 
-            frame_fn = aligator.FrameTranslationResidual(n_dx, self.nu, self.robot.model, pattern[stages_num], tool_id)
-            v_ref = pin.Motion()
-            v_ref.np[:] = 0.0
-            frame_vel_fn = aligator.FrameVelocityResidual(
-                n_dx, self.nu, self.robot.model, v_ref, tool_id, pin.LOCAL
-            )
-            wt_x_term = wt_x.copy()
-            wt_x_term[:] = 1e-4
-            wt_frame_pos = 100.0 * np.eye(frame_fn.nr)
-            wt_frame_vel = 100.0 * np.ones(frame_vel_fn.nr)
-            wt_frame_vel = np.diag(wt_frame_vel)
+    #     # dynamique
+    #     B_mat = np.eye(self.nu)
+    #     ode = dynamics.MultibodyFreeFwdDynamics(self.space, B_mat) # Ordinatry Diff Equation: resolution de l'équation de la dynamique
+    #     discrete_dynamics = dynamics.IntegratorSemiImplEuler(ode, self.parameters.dt)
+
+    #     target_pos=np.array([0.5, 0, 0])
+
+    #     stages = []
+    #     for stages_num in range (duration):
+    #         rcost = aligator.CostStack(self.space, self.nu)
+    #         rcost.addCost("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))
 
 
-            rcost.addCost(
-                "frame", aligator.QuadraticResidualCost(self.space, frame_fn, wt_frame_pos)
-            )
-            # rcost.addCost(
-            #     "vel", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel)
-            # )
+    #         frame_fn = aligator.FrameTranslationResidual(n_dx, self.nu, self.robot.model, pattern[stages_num], tool_id)
+    #         v_ref = pin.Motion()
+    #         v_ref.np[:] = 0.0
+    #         frame_vel_fn = aligator.FrameVelocityResidual(
+    #             n_dx, self.nu, self.robot.model, v_ref, tool_id, pin.LOCAL
+    #         )
+    #         wt_x_term = wt_x.copy()
+    #         wt_x_term[:] = 1e-4
+    #         wt_frame_pos = 100.0 * np.eye(frame_fn.nr)
+    #         wt_frame_vel = 100.0 * np.ones(frame_vel_fn.nr)
+    #         wt_frame_vel = np.diag(wt_frame_vel)
 
-            stm = aligator.StageModel(rcost, discrete_dynamics)
-            stages.append(stm)
-        return stages, term_cost
+
+    #         rcost.addCost(
+    #             "frame", aligator.QuadraticResidualCost(self.space, frame_fn, wt_frame_pos)
+    #         )
+    #         # rcost.addCost(
+    #         #     "vel", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel)
+    #         # )
+
+    #         stm = aligator.StageModel(rcost, discrete_dynamics)
+    #         stages.append(stm)
+    #     return stages, term_cost
 
 
     def fabricateStages(self, current_stage, duration):
@@ -643,17 +642,13 @@ class BaseStageFactory():
         self.stages_definition["constraints"].append((residual, constraint))
 
     def _addRegulationCosts(self):
-        wt_x = self.parameters.joint_reg_cost*np.ones(self.ndx)
-        wt_x[self.nv:] = self.parameters.vel_reg_cost
+        wt_x = self.parameters.stage_joint_reg_cost*np.ones(self.ndx)
+        wt_x[self.nv:] = self.parameters.stage_vel_reg_cost
         wt_x = np.diag(wt_x)
         wt_u = self.parameters.command_reg_cost*np.eye(self.nu)
 
         # add Global target
-        # wt_x_term = wt_x.copy() # np.ones(self.n_dx)
         wt_x_term = self.parameters.term_state_reg_cost*np.eye(self.ndx)
-
-            # wt_x_term  = np.zeros((self.ndx, self.ndx))
-            # wt_x_term = 1e-4 #! waypoint cost
 
         terminal_cost = ("term reg", aligator.QuadraticCost(wt_x_term, wt_u * 0))
         self.stages_definition["terminal costs"].append(terminal_cost)
@@ -691,7 +686,12 @@ class GlueStageFactory(BaseStageFactory):
         self.waypoints = waypoints
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id].translation.copy()
-        self.spline = SplineGenerator(start_pos, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
+
+        start_ori = self.robot.data.oMf[tool_id].rotation.copy()
+        start_ori_rpy = pin.rpy.matrixToRpy(start_ori)
+        print(start_ori_rpy)
+
+        self.spline = SplineGenerator(start_pos, start_ori_rpy, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
         if not args.no_waypoints:
             self._addWaypointCosts()
 
@@ -970,8 +970,8 @@ class Params():
         self.verbose = aligator.VerboseLevel.VERBOSE # QUIET or VERBOSE
 
         # Weights:
-        self.joint_reg_cost = 1e-2 #1e-4
-        self.vel_reg_cost = 1e-2
+        self.stage_joint_reg_cost = 1e-2 #1e-4
+        self.stage_vel_reg_cost = 1e-2
         self.command_reg_cost = 1e-2
         self.term_state_reg_cost = 1e-4
         self.waypoint_x_weight = 1e-4
@@ -1005,8 +1005,8 @@ class Params():
                         f'\t\tSA Strategy: {self.solver_sa_strategy}\n'\
                 f'\nWeights parameters:\n'\
                 f'\tRegulations costs:\n'\
-                    f'\t\tJoints: {self.joint_reg_cost}\n'\
-                    f'\t\tVelocity: {self.vel_reg_cost}\n'\
+                    f'\t\tJoints: {self.stage_joint_reg_cost}\n'\
+                    f'\t\tVelocity: {self.stage_vel_reg_cost}\n'\
                     f'\t\tCommand: {self.command_reg_cost}\n'\
                     f'\t\tTerminal state: {self.term_state_reg_cost}\n'\
                 f'\n\tWaypoints:\n'\
