@@ -7,12 +7,9 @@ import example_robot_data as ex_robot_data
 import pinocchio as pin
 from pinocchio.visualize import ViserVisualizer
 import numpy as np
-import sys
-np.set_printoptions(threshold=sys.maxsize)
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from typing import List
-import tap
 import time
 from copy import deepcopy
 
@@ -48,13 +45,69 @@ class MPC():
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
         self.u_max = self.stage_factory.u_max
+
+        # Solver
+        self.solver = None
+        self.callback = None
+        self.instanciateSolver()
+        self.solver_results = None
         pass
+
+    def calcNextCommand(self, t, current_xs,  xs_warm_start=None, us_warm_start=None):
+        """
+        Runs the solver over one iteration
+        Args:
+            t (float): current t from the start of the mpc
+            current_xs: (list) current state
+            xs_init: (list) initialisation states
+            us_init:
+        Returns:
+            next_u : (list)
+        """
+
+        if ((xs_warm_start is not None) and (us_warm_start is None)) or ((xs_warm_start is not None) and (us_warm_start is None)):
+            raise TypeError('Wrong initialisation of xs_warm_start and us_warm_start: both must be None for a first loop or set for a nth loop')
+
+        elif (xs_warm_start is None) and (us_warm_start is None):
+            if args.debug:
+                print("Running loop")
+
+            us = self.solver_results.us.tolist()
+            us = us[1:]
+            us.append(us[-1])
+            # ! remplacer le us[0] par la derniere commande?
+
+            xs = self.solver_results.xs.tolist()
+            xs = xs[1:]
+            xs.append(xs[-1])
+            xs[0] = current_xs
+
+        else:
+            if args.debug:
+                print("First loop")
+            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
+            xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
+
+        stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
+        problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
+        self.solver.setup(problem)
+        self.solver_results = self.run_solver(problem, us=us, xs=xs)
+
+
+
+
+        # faire cycler self.xs de 1 vers la gauche
+        # remplacer xs[0] par le current state
+        # récupérer le t ? (incrément automatique?? ou fetch time?)
+        # stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
+        # problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
+        # solver.setup(problem)
+        # results = self.run_solver(solver, problem, us=us, xs=xs)
 
     def mpcLoop(self):
         """
         Simulates a MPC running for a total of `self.parameters.total_time` seconds
         """
-        solver, callback = self.instanciateSolver()
 
         final_results_xs = [self.x0] # add the start state
         final_results_us = []
@@ -70,9 +123,8 @@ class MPC():
             if t == 0:
                 # first iteration
                 stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
-                # stages, terminal_coststack = self.stage_factory.hardcoded_stages(t, self.parameters.mpc_steps)
                 problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
-                solver.setup(problem)
+                self.solver.setup(problem)
 
                 # warm start
                 us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
@@ -81,79 +133,66 @@ class MPC():
                 vs = []
 
             else:
-                us = results.us.tolist()
+                us = self.solver_results.us.tolist()
                 us = us[1:]
                 us.append(us[-1])
 
-                xs = results.xs.tolist()
+                xs = self.solver_results.xs.tolist()
                 xs = xs[1:]
                 xs.append(xs[-1])
 
-                vs = results.vs.tolist()
+                vs = self.solver_results.vs.tolist()
                 vs = vs[1:]
                 vs.append(vs[-1])
 
-                lams = results.lams.tolist()
+                lams = self.solver_results.lams.tolist()
                 lams = lams[1:]
                 lams.append(lams[-1])
 
                 stages, terminal_coststack = self.stage_factory.fabricateStages(t,self.parameters.mpc_steps)
-
-                # stages, terminal_coststack = self.stage_factory.hardcoded_stages(t, self.parameters.mpc_steps)
                 problem = aligator.TrajOptProblem(xs[0], stages, terminal_coststack)
 
                 if args.perturbate:
-                    xs[0] = np.add(xs[0], np.random.rand(18)*0.008) # pertubation on the state (max without exploding is ~0.01)
+                    xs[0] = np.add(xs[0], np.random.rand(18)*0.005) # pertubation on the state (max without exploding is ~0.01)
 
-            # boucler avec aligator rollout
-            results = self.run_solver(solver, problem, us=us, xs=xs) #, lams=lams, vs=vs)
+            self.solver_results = self.run_solver(problem, us=us, xs=xs) #, lams=lams, vs=vs) # update results
 
             stop = time.time()
 
+            # Absolutely MUST deepcopy to extract value and not reference
+            current_xs = deepcopy(self.solver_results.xs.tolist()[0])
+            current_us = deepcopy(self.solver_results.us.tolist()[0])
+            last_dual_infeas = deepcopy(self.callback.dual_infeas.tolist()[-1])
+            last_prim_infeas = deepcopy(self.callback.prim_infeas.tolist()[-1])
 
-            current_xs = deepcopy(results.xs.tolist()[0])
-            current_us = deepcopy(results.us.tolist()[0])
-            last_dual_infeas = deepcopy(callback.dual_infeas.tolist()[-1])
-            last_prim_infeas = deepcopy(callback.prim_infeas.tolist()[-1])
-            # print(f'current xs: {current_xs}')
             final_results_us.append(current_us)
             final_results_xs.append(current_xs)
-            # if len(callback.dual_infeas.tolist()) > 0:
             prim_infeas.append(last_dual_infeas)
             dual_infeas.append(last_prim_infeas)
             loop_times.append(stop-start)
 
         return final_results_us, final_results_xs, prim_infeas, dual_infeas, loop_times
 
-    def computeQuasistatic(self, model: pin.Model, x0, a):
-        data = model.createData()
-        q0 = x0[:self.n_q]
-        v0 = x0[self.n_q : self.n_q + self.n_v]
 
-        return pin.rnea(model, data, q0, v0, a)
+    def instanciateSolver(self):
+        self.solver = aligator.SolverProxDDP(self.parameters.solver_tolerance, self.parameters.mu_init, max_iters=self.parameters.mpc_max_iter, verbose=self.parameters.verbose)
+        self.solver.rollout_type = self.parameters.solver_rollout_type
+        self.solver.sa_strategy = self.parameters.solver_sa_strategy
+        self.callback = aligator.HistoryCallback(self.solver)
+        self.solver.registerCallback("his", self.callback)
 
-    def run_solver(self, solver, problem, *, us, xs):#, lams, vs):
+    def run_solver(self, problem, *, us, xs):#, lams, vs):
         """
         Runs the solver over 'max_iters' iterations
         """
-        # solver.preg_ = 1e-09
-        # solver.preg_init = 1e-09
-        # solver.reg_init = 1e-09
-        # solver.ls_params.alpha_min = 1
-
-
-        # solver.reg_min
-        # solver.x_reg
-
-
         start = time.time()
-        solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
         end = time.time()
-        results = solver.results
+        results = self.solver.results
 
         if args.debug:
             print("MPC calc time: " + str(end - start))
-            print(results)
+            print(self.solver_results)
         return results
 
     def calcDiscreteDynamics(self):
@@ -162,13 +201,15 @@ class MPC():
         ode = dynamics.MultibodyFreeFwdDynamics(self.space, B_mat) # Ordinatry Diff Equation: resolution de l'équation de la dynamique
         return dynamics.IntegratorSemiImplEuler(ode, self.parameters.dt)
 
-    def instanciateSolver(self):
-        solver = aligator.SolverProxDDP(self.parameters.solver_tolerance, self.parameters.mu_init, max_iters=self.parameters.mpc_max_iter, verbose=self.parameters.verbose)
-        solver.rollout_type = self.parameters.solver_rollout_type
-        solver.sa_strategy = self.parameters.solver_sa_strategy
-        callback = aligator.HistoryCallback(solver)
-        solver.registerCallback("his", callback)
-        return solver, callback
+    def computeQuasistatic(self, model: pin.Model, x0, a):
+        data = model.createData()
+        q0 = x0[:self.n_q]
+        v0 = x0[self.n_q : self.n_q + self.n_v]
+
+        return pin.rnea(model, data, q0, v0, a)
+
+
+
 
 class BaseStageFactory():
     def __init__(self, robot, space, n_steps, discrete_dynamics):
@@ -275,8 +316,6 @@ class BaseStageFactory():
         stage_reg_cost = [("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))]
         self.stages_definition["stage dependant costs"].append(stage_reg_cost)
 
-        # todo decouple v 1e-3 q 1e-7
-
     def _getDynamicCosts(self, current_stage_num):
         """
         Returns a list of cost for the current stage. If a cost is not defined for a given t, the last instance of this cost is returned instead.
@@ -308,15 +347,12 @@ class GlueStageFactory(BaseStageFactory):
 
         start_ori = self.robot.data.oMf[tool_id].rotation.copy()
         start_ori_rpy = pin.rpy.matrixToRpy(start_ori)
-        print(start_ori_rpy)
-
         self.spline = SplineGenerator(start_pos, start_ori_rpy, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
         if not args.no_waypoints:
             self._addWaypointCosts()
 
         if not args.no_orientation_cost:
             self._addOrientationCosts()
-
 
     def _addWaypointCosts(self):
         """
@@ -446,7 +482,7 @@ class Visualization():
         )
 
 
-        input("[Press enter]")
+        input("[Press enter]\n")
         num_repeat = 10
 
         qs = [x[:self.mpc.n_q] for x in xs_opt]
@@ -565,7 +601,7 @@ class Visualization():
 
 
 if __name__ == "__main__":
-    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0))
+    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.1))
     x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
     positions :list = []
     for i in range (len(x)):
@@ -594,8 +630,6 @@ if __name__ == "__main__":
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
 # ! ============================================================================
-
-    # print(positions)
 
     mpc = MPC(positions)
     final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
