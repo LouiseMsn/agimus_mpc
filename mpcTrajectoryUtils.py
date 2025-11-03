@@ -271,7 +271,6 @@ class PatternGenerator:
             # Arrête si on touche les bords
             if not (x_min <= new_x <= x_max and y_min <= new_y <= y_max):
                 break
-            print("yippie")
 
         return x, y, z
 
@@ -423,8 +422,6 @@ class SplineGenerator:
         for i in range(len(points)-1):
             spread_orientations.append(self._compute_local_orientation(points[i], points[i+1]))
         spread_orientations.append(spread_orientations[-1]) # repeat last orientation to match the number of waypoints
-        print(len(self.time_spread))
-        print(len(spread_orientations))
         self.spread_ori_traj = RBFInterpolator(self.time_spread, spread_orientations, kernel=self.spread_kernel)
         return spread_orientations
 
