@@ -29,7 +29,7 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 6
+        self.total_time : int|float = 10
         self.n_total_steps : int = int(self.total_time / self.dt)
         self.mpc_horizon : int|float = 1 # in seconds
         self.mpc_steps : int = int(self.mpc_horizon / self.dt)
@@ -52,7 +52,7 @@ class Params():
         self.waypoint_frame_pos_weight = 100
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 1
-        self.vel_spread = 0.1
+        self.vel_spread = 0.5
         self.vel_start = 0.5
 
         # Trajectory
