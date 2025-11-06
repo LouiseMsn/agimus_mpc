@@ -15,11 +15,11 @@ from copy import deepcopy
 
 
 class MPC():
-    def __init__(self, waypoints):
-        print(args)
-        self.parameters = Params()
+    def __init__(self, waypoints, parameters):
+        # print(args)                                                                                                                                           #!!!!!!!!!!!!!
+        self.parameters = parameters
         self.waypoints = waypoints
-        print(self.parameters)
+        # print(self.parameters)
 
         # Initialize robot
         self.robot = ex_robot_data.load(self.parameters.robot_name)
@@ -64,11 +64,17 @@ class MPC():
         Returns:
             next_u : (list)
         """
-
+        # print(f'{self.solver.rollout_type}\n{self.solver.sa_strategy }\n{self.solver.linear_solver_choice}\n{self.solver.num_threads}') #!!
         if ((xs_warm_start is not None) and (us_warm_start is None)) or ((xs_warm_start is not None) and (us_warm_start is None)):
             raise TypeError('Wrong initialisation of xs_warm_start and us_warm_start: both must be None for a first loop or set for a nth loop')
 
         elif (xs_warm_start is None) and (us_warm_start is None):
+            if args.debug:
+                print("First loop")
+            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
+            xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
+
+        else:
             if args.debug:
                 print("Running loop")
 
@@ -82,16 +88,20 @@ class MPC():
             xs.append(xs[-1])
             xs[0] = current_xs
 
-        else:
-            if args.debug:
-                print("First loop")
-            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
-            xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
-
         stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
         problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
         self.solver.setup(problem)
         self.solver_results = self.run_solver(problem, us=us, xs=xs)
+
+        start = time.time()
+        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        end = time.time()
+        calc_time = end - start
+        return calc_time
+
+
+
+        # print("MPC calc next command: " + str(end - start)) #!
 
 
 
@@ -176,10 +186,20 @@ class MPC():
 
     def instanciateSolver(self):
         self.solver = aligator.SolverProxDDP(self.parameters.solver_tolerance, self.parameters.mu_init, max_iters=self.parameters.mpc_max_iter, verbose=self.parameters.verbose)
-        self.solver.rollout_type = self.parameters.solver_rollout_type
-        self.solver.sa_strategy = self.parameters.solver_sa_strategy
+        # self.solver.rollout_type = self.parameters.solver_rollout_type
+        # self.solver.sa_strategy = self.parameters.solver_sa_strategy
+        # self.solver.linear_solver_choice = self.parameters.solver_linear_solver_choice
+
+        # if self.parameters.solver_linear_solver_choice == aligator.LQ_SOLVER_PARALLEL:
+        #     self.solver.setNumThreads(self.parameters.solver_num_threads)
+
+        self.solver.rollout_type = aligator.ROLLOUT_LINEAR
+        self.solver.sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
+        self.solver.linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
         self.callback = aligator.HistoryCallback(self.solver)
+        self.solver.setNumThreads(self.parameters.solver_num_threads)
         self.solver.registerCallback("his", self.callback)
+
 
     def run_solver(self, problem, *, us, xs):#, lams, vs):
         """
@@ -189,6 +209,7 @@ class MPC():
         self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
         end = time.time()
         results = self.solver.results
+
 
         if args.debug:
             print("MPC calc time: " + str(end - start))
@@ -630,8 +651,8 @@ if __name__ == "__main__":
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
 # ! ============================================================================
-
-    mpc = MPC(positions)
+    params = Params()
+    mpc = MPC(params, positions)
     final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
     # final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.loneRun()
     viz = Visualization(mpc)
