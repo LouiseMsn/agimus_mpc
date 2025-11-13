@@ -33,7 +33,7 @@ Options:
 ## Performance optimization
 OpenMP (used by aligator) allows you to parallelize the program on designated threads and/or cores of your CPU: one useful case is prioritizing performance cores of your processor and avoiding economy core. The setup is done in your bash environment with variables.
 
-> ![Note]
+> ![TIP]
 > Get your cpu model : `lscpu | grep -i "model name"`
 
 
@@ -66,4 +66,5 @@ You can set the places to be threads or cores with :
 &ensp;&ensp;**SPREAD** means OpenMP will try to spread the worker threads across the places.
 &ensp;&ensp;**CLOSE** will try to use places near each other.
 &ensp;&ensp;**MASTER** will try to keep then close to the master thread.
-&ensp;&ensp;([more detailed source](https://www.ibm.com/docs/en/xl-fortran-linux/16.1.0?topic=openmp-omp-proc-bind))
+
+([more detailed source](https://www.ibm.com/docs/en/xl-fortran-linux/16.1.0?topic=openmp-omp-proc-bind))
