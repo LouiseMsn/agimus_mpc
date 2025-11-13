@@ -53,6 +53,42 @@ class MPC():
         self.solver_results = None
         pass
 
+    def bench(self, nb_stages):
+        us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(nb_stages)]
+        xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
+
+        stages, terminal_coststack = self.stage_factory.fabricateStages(0, nb_stages)
+        problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
+        self.solver.setup(problem)
+        # self.solver_results = self.run_solver(problem, us=us, xs=xs)
+
+        start = time.time()
+        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        end = time.time()
+        calc_time = end - start
+        print(f'{calc_time}')
+
+        start = time.time()
+        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        end = time.time()
+        calc_time = end - start
+        print(f'{calc_time}')
+
+        start = time.time()
+        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        end = time.time()
+        calc_time = end - start
+        print(f'{calc_time}')
+
+        start = time.time()
+        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        end = time.time()
+        calc_time = end - start
+        print(f'{calc_time}')
+
+        return calc_time
+
+
     def calcNextCommand(self, t, current_xs,  xs_warm_start=None, us_warm_start=None):
         """
         Runs the solver over one iteration
@@ -73,6 +109,12 @@ class MPC():
                 print("First loop")
             us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
             xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
+            stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
+            problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
+
+            problem.x0_init =xs[0]
+
+            self.solver.setup(problem)
 
         else:
             if args.debug:
@@ -88,31 +130,27 @@ class MPC():
             xs.append(xs[-1])
             xs[0] = current_xs
 
-        stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
-        problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
-        self.solver.setup(problem)
-        self.solver_results = self.run_solver(problem, us=us, xs=xs)
+
+
+        # self.solver_results, calc_time = self.run_solver(problem, us=us, xs=xs)
 
         start = time.time()
         self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
         end = time.time()
+        results = self.solver.results
         calc_time = end - start
-        return calc_time
+
+
+        # self.solver.cycleProblem(problem, stageData)
+
+        print(f'calc time a la main: {calc_time}')
+        return calc_time, results
 
 
 
         # print("MPC calc next command: " + str(end - start)) #!
 
 
-
-
-        # faire cycler self.xs de 1 vers la gauche
-        # remplacer xs[0] par le current state
-        # récupérer le t ? (incrément automatique?? ou fetch time?)
-        # stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
-        # problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
-        # solver.setup(problem)
-        # results = self.run_solver(solver, problem, us=us, xs=xs)
 
     def mpcLoop(self):
         """
@@ -209,12 +247,13 @@ class MPC():
         self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
         end = time.time()
         results = self.solver.results
+        time = end - start
 
 
         if args.debug:
             print("MPC calc time: " + str(end - start))
             print(self.solver_results)
-        return results
+        return results, time
 
     def calcDiscreteDynamics(self):
         nu = self.robot.model.nv
@@ -256,6 +295,20 @@ class BaseStageFactory():
         if not args.no_torque_lim:
             self._addTorqueLimitsConstraints()
         self._addRegulationCosts()
+
+    def getStageModel(self, t):
+        stage_coststack = aligator.CostStack(self.space, self.nu)
+        cost_list = self._getDynamicCosts(t)
+        # print(f'Waypoints costs list stage n°{stage_num}: {cost_list}')
+        for cost in cost_list:
+            stage_coststack.addCost(*cost)
+
+        stage_model = aligator.StageModel(stage_coststack, self.discrete_dynamics)
+        for constraint in self.stages_definition["constraints"]:
+            stage_model.addConstraint(*constraint)
+
+        print(type(stage_model))
+
 
     def fabricateStages(self, current_stage, duration):
         """
@@ -356,7 +409,7 @@ class BaseStageFactory():
     def getStagesDefinition(self):
         return self.stages_definition
 
-    def getStageModel(self):
+    def getStagesList(self): #! remove?
         return self.stages
 
 class GlueStageFactory(BaseStageFactory):
@@ -652,10 +705,13 @@ if __name__ == "__main__":
     #             np.array([0.5, 0.0, 0.2])]
 # ! ============================================================================
     params = Params()
-    mpc = MPC(params, positions)
-    final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
-    # final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.loneRun()
-    viz = Visualization(mpc)
-    viz.plotResults(final_results_xs, final_results_us, prim_infeas, dual_infeas, mpc_loop_times)
-    if args.viz3D:
-        viz.display(final_results_xs)
+    mpc = MPC(positions,params)
+    # final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
+    # # final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.loneRun()
+    # viz = Visualization(mpc)
+    # viz.plotResults(final_results_xs, final_results_us, prim_infeas, dual_infeas, mpc_loop_times)
+    # if args.viz3D:
+    #     viz.display(final_results_xs)
+
+    # mpc.stage_factory.getStageModel(1.5)
+    mpc.calcNextCommand(0,None)
