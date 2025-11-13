@@ -51,20 +51,20 @@ export OMP_NUM_THREADS
 (*"worker threads"* here corresponds to the threads spawned by aligator and *"thread"* refers to the cpu thread)
 
 
-`OMP_PLACES` defines the places where the worker threads can be put.
-You can set the places to be threads or cores with :
+`OMP_PLACES` defines the places where the worker threads can be put.  
+You can set the places to be threads or cores with :  
 &ensp;&ensp;`OMP_PLACES="thread(n)"` = the places available will be the nth first consecutive threads.
-> So if you do `export OMP_PLACES="threads(6)` when launching you will have `OMP_PLACES = '{0},{1},{2},{3},{4},{5}'` that lists the first 6 threads where the worker threads can be placed.
+> So if you do `export OMP_PLACES="threads(6)` when launching you will have `OMP_PLACES = '{0},{1},{2},{3},{4},{5}'` that lists the first 6 threads where the worker threads can be placed.  
 > Each `{....}` is a place where one worker thread can be placed. It ignores the repartition of the thread per cores.
 
 &ensp;&ensp;`OMP_PLACES="cores(n)"` means the places will be defined as the nth first consecutive cores and try to put only one worker thread per core.
-> So if you do `export OMP_PLACES="cores(14)` when launching you will have `OMP_PLACES = '{0:2},{2:2},{4:2},{6:2},{8:2},{10:2},{12},{13},{14},{15},{16},{17},{18},{19}'`
+> So if you do `export OMP_PLACES="cores(14)` when launching you will have `OMP_PLACES = '{0:2},{2:2},{4:2},{6:2},{8:2},{10:2},{12},{13},{14},{15},{16},{17},{18},{19}'`   
 > This is done on an i7-13800H which has 6 performances cores with 2 threads each (threads 0 to 11) and 8 economy cores with 1 thread each (threads 12 to 19) so the output is :`{0:2} = first core starting at thread 0 with threads 0&1 available for one worker thread`
 
 
-`OMP_PROC_BIND`(**SPREAD**,**CLOSE** or **MASTER**) defines how the worker threads are placed.
-&ensp;&ensp;**SPREAD** means OpenMP will try to spread the worker threads across the places.
-&ensp;&ensp;**CLOSE** will try to use places near each other.
-&ensp;&ensp;**MASTER** will try to keep then close to the master thread.
+`OMP_PROC_BIND`(**SPREAD**,**CLOSE** or **MASTER**) defines how the worker threads are placed.  
+&ensp;&ensp;**SPREAD** means OpenMP will try to spread the worker threads across the places.  
+&ensp;&ensp;**CLOSE** will try to use places near each other.  
+&ensp;&ensp;**MASTER** will try to keep then close to the master thread.  
 
 ([more detailed source](https://www.ibm.com/docs/en/xl-fortran-linux/16.1.0?topic=openmp-omp-proc-bind))
