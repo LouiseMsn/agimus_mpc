@@ -4,19 +4,20 @@ from mpcTrajectoryUtils import PatternGenerator
 import aligator
 import matplotlib.pyplot as plt
 import numpy as np
+import os
+from statistics import median
 
-
-MIN = 50
-MAX = 150
+os.nice(-20)
 
 def runBenchParallel(nb_threads, nb_stages):
+    print(f"nb threads {nb_threads}, nb stages {nb_stages}")
     params= Params()
     params.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
     params.solver_num_threads = nb_threads
-    print(nb_stages)
-    params.mpc_steps = nb_stages
+    # params.mpc_steps = nb_stages
     mpc = MPC(parameters=params, waypoints=positions)
-    delta_t = mpc.calcNextCommand(t=0, current_xs=None)
+    # delta_t = mpc.calcNextCommand(t=0, current_xs=None)
+    delta_t = mpc.bench(nb_stages)
 
     return delta_t
 
@@ -39,21 +40,34 @@ if __name__=="__main__":
         positions.append(np.array([x[i], y[i], z[i]]))
 
     # params = Params()
-    stages_axis = [i for i in range(MIN, MAX,10)]
+    num_threads_list = list(range(2,13,2))
+    stages_axis = [i for i in range(50, 201,50)]
+    moy = 5
 
     fig, ax = plt.subplots()
     list_results = []
-    for num_threads in range(2,9,2):
+    for num_threads in num_threads_list:
         list_delta_t = []
-        for num_stages in range(MIN,MAX,10):
-            d_t = 0
-            for i in range(1):
-                d_t = d_t + runBenchParallel(num_threads, num_stages)
+        for num_stages in stages_axis:
+            d_ts = []
+            for i in range(moy):
+                d_ts.append(runBenchParallel(num_threads, num_stages))
                 # d_t = d_t + runBenchSerial(num_stages)
-            list_delta_t.append(d_t/1.0)
+            list_delta_t.append(median(d_ts))
         ax.plot(stages_axis, list_delta_t, marker=".", label=f"{num_threads} threads")
-    list_results.append(list_delta_t)
+        list_results.append(list_delta_t)
 
     ax.legend()
     ax.set(title='Aligator 0.16.0', xlabel='num of stages', ylabel = 'time (s)' )
+
+    pivoted_results = list(zip(*list_results))
+
+    # Now plot delta as a function of number of threads for a given stage
+    fig, ax = plt.subplots()
+
+    for stage_idx, stage_times in enumerate(pivoted_results):
+        ax.plot(num_threads_list, stage_times, marker="o", label=f"stage {stages_axis[stage_idx]}")
+
+    ax.set(title='Aligator 0.16.0', xlabel='num of threads', ylabel='time (s)')
+    ax.legend()
     plt.show()
