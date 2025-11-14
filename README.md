@@ -1,15 +1,24 @@
 # Model Predictive Control for AGIMUS WP 6
 ## Install
-The code is split in two branches:
-- `main` for [aligator 0.15.0](github.com/Simple-Robotics/aligator/releases/tag/v0.15.0)
-- `aligator16` for [aligator 0.16.0](https://github.com/Simple-Robotics/aligator/releases/tag/v0.16.0) (branch still in debug)
-
-In both cases the conda environment can be installed with:
+To install dependencies :
 ```bash
-conda env create -f environment.yml
+git clone git@github.com:LouiseMsn/aligator.git -b viser
+cd aligator
+pixi run -e all build
+pixi shell -e all
+cd build
+ninja install
+```
+Next time juste use:
+```bash
+cd aligator
+pixi shell -e all
 ```
 
 ## Usage
+The code is split in two branches:
+- `main` for [aligator 0.15.0](github.com/Simple-Robotics/aligator/releases/tag/v0.15.0)
+- `aligator16` for [aligator 0.16.0](https://github.com/Simple-Robotics/aligator/releases/tag/v0.16.0) 
 The main code is located in `mpc_glue.py`, to launch the demo :
 ```bash
 python mpc_glue.py --display
