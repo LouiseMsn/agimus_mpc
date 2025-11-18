@@ -30,13 +30,13 @@ class Params():
         # MPC
         self.dt : float = 0.01 # time is in seconds
         self.total_time : int|float = 10
-        self.n_total_steps : int = int(self.total_time / self.dt)
-        self.mpc_horizon : int|float = 1 # in seconds
-        self.mpc_steps : int = int(self.mpc_horizon / self.dt)
+        self.mpc_steps : int = 100
         self.mpc_max_iter : int = 1 #2
         self.solver_tolerance = 1e-7
-        self.solver_rollout_type = aligator.ROLLOUT_NONLINEAR
+        self.solver_rollout_type = aligator.ROLLOUT_LINEAR
         self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
+        self.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
+        self.solver_num_threads = 4
         self.mu_init = 1e-7 #0.99 # penalite sur les contraintes
         if args.debug:
             self.verbose = aligator.VerboseLevel.VERBOSE
@@ -57,6 +57,15 @@ class Params():
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
+
+    @property
+    def n_total_steps(self):
+        return int(self.total_time / self.dt)
+
+    @property
+    def mpc_horizon(self):
+        return self.dt * float(self.mpc_steps) # in seconds
+
     def __repr__(self)->str:
         """
         Formats the output when printing the object
@@ -70,12 +79,14 @@ class Params():
                     f'\tdt: {self.dt} (secs)\n'\
                     f'\tTotal time: {self.total_time} (secs)\n'\
                     f'\tTotal number of steps: {self.n_total_steps}\n'\
-                    f'\tHorizon: {self.mpc_horizon} (secs)\n'\
                     f'\tHorizon: {self.mpc_steps} (steps)\n'\
+                    f'\tHorizon: {self.mpc_horizon} (secs)\n'\
                     f'\tNumber max of iterations: {self.mpc_max_iter}\n'\
                     f'\tSolver:\n'\
                         f'\t\tRollout type: {self.solver_rollout_type}\n'\
                         f'\t\tSA Strategy: {self.solver_sa_strategy}\n'\
+                        f'\t\tLinear solver choice: {self.solver_linear_solver_choice}\n'\
+                        f'\t\tNumber of threads: {self.solver_num_threads}\n'\
                 f'\nWeights parameters:\n'\
                 f'\tRegulations costs:\n'\
                     f'\t\tJoints: {self.stage_joint_reg_cost}\n'\
