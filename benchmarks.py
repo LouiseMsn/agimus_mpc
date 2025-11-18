@@ -7,7 +7,7 @@ import numpy as np
 import os
 from statistics import median
 
-os.nice(-20)
+# os.nice(-20)
 
 def runBenchParallel(nb_threads, nb_stages):
     print(f"nb threads {nb_threads}, nb stages {nb_stages}")
@@ -42,7 +42,7 @@ if __name__=="__main__":
     # params = Params()
     num_threads_list = list(range(2,13,2))
     stages_axis = [i for i in range(50, 201,50)]
-    moy = 5
+    moy = 3
 
     fig, ax = plt.subplots()
     list_results = []
