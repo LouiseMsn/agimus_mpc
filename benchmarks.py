@@ -6,18 +6,23 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from statistics import median
+import time
 
 # os.nice(-20)
 
 def runBenchParallel(nb_threads, nb_stages):
     print(f"nb threads {nb_threads}, nb stages {nb_stages}")
-    params= Params()
+    params = Params()
     params.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
     params.solver_num_threads = nb_threads
-    # params.mpc_steps = nb_stages
+    params.mpc_steps = nb_stages
     mpc = MPC(parameters=params, waypoints=positions)
-    # delta_t = mpc.calcNextCommand(t=0, current_xs=None)
-    delta_t = mpc.bench(nb_stages)
+    mpc.iterate(mpc.x0)
+    robot_state = mpc.results.xs.tolist()[0]
+    start = time.time()
+    delta_t = mpc.iterate(robot_state)
+    stop = time.time()
+
 
     return delta_t
 
