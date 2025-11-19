@@ -21,7 +21,7 @@ The code is split in two branches:
 - `aligator16` for [aligator 0.16.0](https://github.com/Simple-Robotics/aligator/releases/tag/v0.16.0) 
 The main code is located in `mpc_glue.py`, to launch the demo :
 ```bash
-python mpc_glue.py --display
+python main.py
 ```
 Options:
 - **display**: (default False)
