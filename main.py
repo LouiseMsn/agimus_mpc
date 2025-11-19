@@ -4,6 +4,7 @@ from mpcTrajectoryUtils import PatternGenerator
 import numpy as np
 from copy import deepcopy
 
+
 if __name__=="__main__":
 
 
@@ -53,3 +54,31 @@ if __name__=="__main__":
         mpc_timer.append(solver_calc_time)
 
     viz.plotResults(results_xs, results_us, prim_infeas, dual_infeas, mpc_timer)
+
+
+    # positions = [np.array([0.5, 0.0, 0.2]), # merry-go-round
+    #             np.array([ 0.5, 0.0, 0.5]),
+    #             np.array([0.35, 0.35, 0.5]),
+    #             np.array([0.35, 0.35, 0.2]),
+    #             np.array([0.0, 0.5, 0.2]),
+    #             np.array([0.0, 0.5, 0.5]),
+    #             np.array([-0.35, 0.35, 0.5]),
+    #             np.array([-0.35, 0.35, 0.2]),
+    #             np.array([-0.5, 0.0, 0.2]),
+    #             np.array([-0.5, 0.0, 0.5]),
+    #             np.array([-0.35, -0.35, 0.5]),
+    #             np.array([-0.35, -0.35, 0.2]),
+    #             np.array([0.0, -0.5, 0.2]),
+    #             np.array([0.0, -0.5, 0.5]),
+    #             np.array([0.35, -0.35,  0.5]),
+    #             np.array([0.35, -0.35,  0.2]),
+    #             np.array([0.5, 0.0, 0.2])]
+
+    # positions =[ # line
+    #             np.array([0.2, 0.1, 0.2]),
+    #             np.array([0.2, 0.2, 0.2]),
+    #             np.array([0.2, 0.3, 0.2]),
+    #             np.array([0.2, 0.4, 0.2]),
+    #             np.array([0.2, 0.5, 0.2]),
+    #             np.array([0.2, 0.6, 0.2])
+    #             ]
