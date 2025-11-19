@@ -1,4 +1,5 @@
-from mpc import MPC, Visualization
+from mpc import MPC
+from mpcVisualization import Visualization
 from mpcParameters import Params, args
 from mpcTrajectoryUtils import PatternGenerator
 import numpy as np
