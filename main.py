@@ -1,19 +1,37 @@
 from mpc import MPC, Visualization
-from mpcParameters import Params
+from mpcParameters import Params, args
 from mpcTrajectoryUtils import PatternGenerator
 import numpy as np
 from copy import deepcopy
-
 
 if __name__=="__main__":
 
 
     parameters = Params()
-    patternGen = PatternGenerator([0.5,0.5,0], (0.4,0,0))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
-    positions :list = []
-    for i in range (len(x)): # TODO change return of generate pattern to avoid this
-        positions.append(np.array([x[i], y[i], z[i]]))
+    # patternGen = PatternGenerator([0.5,0.5,0], (0.4,0,0))
+    # x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
+    # positions :list = []
+    # for i in range (len(x)): # TODO change return of generate pattern to avoid this
+    #     positions.append(np.array([x[i], y[i], z[i]]))
+
+
+    positions = [np.array([0.5, 0.0, 0.2]), # merry-go-round
+                np.array([ 0.5, 0.0, 0.5]),
+                np.array([0.35, 0.35, 0.5]),
+                np.array([0.35, 0.35, 0.2]),
+                np.array([0.0, 0.5, 0.2]),
+                np.array([0.0, 0.5, 0.5]),
+                np.array([-0.35, 0.35, 0.5]),
+                np.array([-0.35, 0.35, 0.2]),
+                np.array([-0.5, 0.0, 0.2]),
+                np.array([-0.5, 0.0, 0.5]),
+                np.array([-0.35, -0.35, 0.5]),
+                np.array([-0.35, -0.35, 0.2]),
+                np.array([0.0, -0.5, 0.2]),
+                np.array([0.0, -0.5, 0.5]),
+                np.array([0.35, -0.35,  0.5]),
+                np.array([0.35, -0.35,  0.2]),
+                np.array([0.5, 0.0, 0.2])]
 
     results_xs = []
     results_us = []
@@ -23,9 +41,11 @@ if __name__=="__main__":
 
 
     mpc = MPC(positions, parameters)
-    viz = Visualization(mpc)
-    launch_check = input("Enter to launch")
     robot_state = mpc.x0
+    if not args.no_viz3D:
+        viz = Visualization(mpc)
+
+    launch_check = input("Enter to launch")
     for t in range (mpc.parameters.n_total_steps+1):
         print(f't:{t}')
         if t == 0:
@@ -39,7 +59,8 @@ if __name__=="__main__":
         xs_no_ee[0][mpc.n_q - 1] = 0
         xs_no_ee[0][mpc.n_q - 2] = 0
 
-        viz.display_step(xs_no_ee)
+        if not args.no_viz3D:
+            viz.display_step(xs_no_ee)
 
         # copy the results for plotting
         current_xs = deepcopy(mpc.results.xs.tolist()[0])
