@@ -36,7 +36,7 @@ class Params():
         self.solver_rollout_type = aligator.ROLLOUT_LINEAR
         self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
         self.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
-        self.solver_num_threads = 4
+        self.solver_num_threads = 10
         self.mu_init = 1e-7 #0.99 # penalite sur les contraintes
         if args.debug:
             self.verbose = aligator.VerboseLevel.VERBOSE
