@@ -79,8 +79,6 @@ class MPC():
         """
 
         if self.solver_stage_number == 0:
-            if args.debug:
-                print("First loop")
             # create the data
             us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
             xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
@@ -93,18 +91,11 @@ class MPC():
             self.solver.setup(self.problem)
 
         else:
-            if args.debug:
-                print("Running loop")
-
             # cycle the data
             us   = self.cycleData(self.results.us.tolist())
             xs   = self.cycleData(self.results.xs.tolist())
-            # vs   = self.cycleData(self.results.vs.tolist())
-            # lams = self.cycleData(self.results.lams.tolist())
-
 
             end_of_horizon_index = self.solver_stage_number + self.parameters.mpc_steps
-            # print(f'end of horizon: {end_of_horizon_index}')
 
             # cycle the stages
             stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
@@ -119,8 +110,7 @@ class MPC():
             if args.perturbate:
                 xs[0] = np.add(xs[0], np.random.rand(18)*0.01) # perturbation on the state (max without exploding is ~0.01)
 
-        self.results, solver_calc_time = self.run_solver(self.problem, us=us, xs=xs)#, lams = lams, vs = vs) #
-        self.solver_stage_number += 1
+        self.results, solver_calc_time = self.run_solver(self.problem, us=us, xs=xs)
 
         return solver_calc_time
 
@@ -129,7 +119,7 @@ class MPC():
         Runs the solver over 'max_iters' iterations
         """
         start = time.time()
-        self.solver.run(problem, xs, us)#, vs, lams) # TODO warm start vs and lams?
+        self.solver.run(problem, xs, us)
         end = time.time()
         results = self.solver.results
         timer = end - start
@@ -140,12 +130,18 @@ class MPC():
         return results, timer
 
     def calcDiscreteDynamics(self):
+        """
+        Initializes the discrete dynamic of the system.
+        """
         nu = self.robot.model.nv
         B_mat = np.eye(nu)
         ode = dynamics.MultibodyFreeFwdDynamics(self.space, B_mat) # Ordinatry Diff Equation: resolution de l'équation de la dynamique
         return dynamics.IntegratorSemiImplEuler(ode, self.parameters.dt)
 
     def computeQuasistatic(self, model: pin.Model, x0, a):
+        """
+        Initializes individual us values.
+        """
         data = model.createData()
         q0 = x0[:self.n_q]
         v0 = x0[self.n_q : self.n_q + self.n_v]
@@ -191,7 +187,6 @@ class BaseStageFactory():
         """
         stage_coststack = aligator.CostStack(self.space, self.nu)
         cost_list = self._getDynamicCosts(stage_number)
-        # print(f'Waypoints costs list stage n°{stage_number}: {cost_list}')
         for cost in cost_list:
             stage_coststack.addCost(*cost)
 
@@ -202,11 +197,10 @@ class BaseStageFactory():
 
     def getTerminalCoststack(self):
         """"
-        TODO
+        Returns the terminal coststack calculated from the `stages_definitions` dict.
         """
         terminal_coststack = aligator.CostStack(self.space, self.nu)
         for terminal_cost in self.stages_definition["terminal costs"]:
-        #     # print(f'Terminal cost: {terminal_cost}')
             terminal_coststack.addCost(*terminal_cost)
 
         return terminal_coststack
@@ -219,17 +213,13 @@ class BaseStageFactory():
 
         terminal_coststack = aligator.CostStack(self.space, self.nu)
         for terminal_cost in self.stages_definition["terminal costs"]:
-        #     # print(f'Terminal cost: {terminal_cost}')
             terminal_coststack.addCost(*terminal_cost)
-        # print("stages def:" + str(self.stages_definition))
         stages = []
         for stage_num in range(current_stage, duration + current_stage):
             stage_coststack = aligator.CostStack(self.space, self.nu)
             cost_list = self._getDynamicCosts(stage_num)
-            # print(f'Waypoints costs list stage n°{stage_num}: {cost_list}')
             for cost in cost_list:
                 stage_coststack.addCost(*cost)
-            # print(f'stage {stage_num} coststack : {stage_coststack}')
 
             stage_model = aligator.StageModel(stage_coststack, self.discrete_dynamics)
             for constraint in self.stages_definition["constraints"]:
@@ -253,8 +243,6 @@ class BaseStageFactory():
 
             if np.isneginf(q_min) and np.isinf(q_max):
                 continue
-
-            # print(f"Adding BoxConstraint for Joint '{jn}': [{q_min:.3f}, {q_max:.3f}]") #! debug
 
             A = np.zeros((1, self.ndx))
             A[0, q_idx_in_x] = 1.0
@@ -340,7 +328,6 @@ class GlueStageFactory(BaseStageFactory):
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
             target_pos = self.spline.get_interpolated_pose(t*self.parameters.dt)
-            # print(f'target pose for {t}: { target_pos}')
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
             v_ref.np[:] = 0
@@ -361,11 +348,10 @@ class GlueStageFactory(BaseStageFactory):
         orientation_costs = []
         for t in range (self.parameters.n_total_steps):
             rpy = self.spline.get_interpolated_ori(t*self.parameters.dt)
-            # print(f'rpy: {rpy}')
             R = pin.rpy.rpyToMatrix(rpy)
             target_orientation = pin.Quaternion(R)
 
-            target_placement = pin.SE3(target_orientation, np.zeros(3)) # on a juste besoin de la rotation
+            target_placement = pin.SE3(target_orientation, np.zeros(3)) # only take orientation
 
             placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, target_placement, self.robot.model.getFrameId(self.parameters.tool_frame_name)) # [err_pos(3), err_ori(3)]
 
@@ -446,7 +432,6 @@ class Visualization():
                 horizon.append(input_traj[-1])
         else:
             horizon = input_traj[i:i+self.mpc.parameters.mpc_steps]
-        # print(f"horizon :{len(horizon)}")
 
         self.vizer.viewer.scene.add_spline_catmull_rom(
                                                         "Horizon",
@@ -475,9 +460,6 @@ class Visualization():
                                             color=np.array([6, 117, 255]),
                                             segments=100,
                                             )
-
-        print(xs_opt)
-        print(qs)
         self.vizer.play(qs, self.mpc.parameters.dt, callback=self._callbackVisualization)
 
 
@@ -509,11 +491,7 @@ class Visualization():
         qs = [x[:self.mpc.n_q] for x in xs_opt]
         input_return = input("[Press enter to play, type \"q\" to exit]\n")
         while "q" not in input_return :
-            start = time.time()
             self.vizer.play(qs, self.mpc.parameters.dt, callback=self._callbackVisualization)
-
-            stop = time.time()
-            print("Playing time: " + str(stop - start))
             input_return = input("[Press enter to play, type \"q\" to exit]\n")
 
 
@@ -525,11 +503,6 @@ class Visualization():
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
         times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
-
-        print(f'times len : {len(times)}')
-        print(f'xs_opt len : {len(xs_opt)}')
-        print(f'us_opt len : {len(us_opt)}')
-
 
         fig: plt.Figure = plt.figure(constrained_layout=True)
         fig.set_size_inches(6.4, 6.4)
