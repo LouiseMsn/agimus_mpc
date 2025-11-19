@@ -48,161 +48,10 @@ class MPC():
 
         # Solver
         self.solver, self.callback = self.instantiateSolver()
-        self.solver_results = None
+        self.results = None
+        self.problem = None
+        self.solver_stage_number = 0
         pass
-
-#! TO BE DELETED
-    # def bench(self, nb_stages):
-    #     us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(nb_stages)]
-    #     xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
-
-    #     stages, terminal_coststack = self.stage_factory.fabricateStages(0, nb_stages)
-    #     problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
-    #     self.solver.setup(problem)
-    #     # self.solver_results = self.run_solver(problem, us=us, xs=xs)
-
-    #     start = time.time()
-    #     self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
-    #     end = time.time()
-    #     calc_time = end - start
-    #     print(f'{calc_time}')
-
-    #     return calc_time
-
-
-    def iterate(self, t, current_xs,  xs_warm_start=None, us_warm_start=None):
-        """
-        Runs the solver over one iteration
-        Args:
-            t (float): current t from the start of the mpc
-            current_xs: (list) current state
-            xs_init: (list) initialization states
-            us_init:
-        Returns:
-            next_u : (list)
-        """
-
-        # print(f'{self.solver.rollout_type}\n{self.solver.sa_strategy }\n{self.solver.linear_solver_choice}\n{self.solver.num_threads}') #!!
-
-        if t == 0:
-            if args.debug:
-                print("First loop")
-            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
-            xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
-            stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.mpc_steps)
-            problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
-            self.solver.setup(problem)
-
-        elif ((xs_warm_start is not None) and (us_warm_start is None)) or ((xs_warm_start is not None) and (us_warm_start is None)):
-
-            raise TypeError('Wrong initialization of xs_warm_start and us_warm_start: both must be set for a nth loop')
-
-        else:
-            if args.debug:
-                print("Running loop")
-
-            # get stage for len horizon
-            #!! get the problem to be instanciated once
-            self.solver.cycleProblem(problem, stageData)
-
-            us = self.solver_results.us.tolist()
-            us = us[1:]
-            us.append(us[-1])
-            # ! remplacer le us[0] par la derniere commande?
-
-            xs = self.solver_results.xs.tolist()
-            xs = xs[1:]
-            xs.append(xs[-1])
-            problem.x0_init = current_xs
-
-
-
-        # self.solver_results, calc_time = self.run_solver(problem, us=us, xs=xs)
-
-        start = time.time()
-        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
-        end = time.time()
-        results = self.solver.results
-        calc_time = end - start
-
-
-
-
-
-        return calc_time, results
-
-
-
-        # print("MPC calc next command: " + str(end - start)) #!
-
-    def mpcLoop(self):
-        """
-        Simulates a MPC running for a total of `self.parameters.total_time` seconds
-        """
-
-        final_results_xs = [self.x0] # add the start state
-        final_results_us = []
-        prim_infeas = [None]
-        dual_infeas = [None]
-        loop_times = []
-
-        # terminal_coststack = self.stage_factory.getTerminalCoststack()
-
-        for t in range (self.parameters.n_total_steps):
-            if args.debug:
-                print("t: "+ str(t)) #! debug
-            if t == 0:
-                # first iteration
-                stages, terminal_coststack = self.stage_factory.fabricateStages(t, self.parameters.mpc_steps)
-                problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
-                self.solver.setup(problem)
-
-                # warm start
-                us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
-                xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
-                lams = []
-                vs = []
-
-            else:
-                us = self.solver_results.us.tolist()
-                us = us[1:]
-                us.append(us[-1])
-
-                xs = self.solver_results.xs.tolist()
-                xs = xs[1:]
-                xs.append(xs[-1])
-
-                vs = self.solver_results.vs.tolist()
-                vs = vs[1:]
-                vs.append(vs[-1])
-
-                lams = self.solver_results.lams.tolist()
-                lams = lams[1:]
-                lams.append(lams[-1])
-
-                stages, terminal_coststack = self.stage_factory.fabricateStages(t,self.parameters.mpc_steps)
-                problem = aligator.TrajOptProblem(xs[0], stages, terminal_coststack)
-                self.solver.setup(problem)
-
-                if args.perturbate:
-                    xs[0] = np.add(xs[0], np.random.rand(18)*0.005) # pertubation on the state (max without exploding is ~0.01)
-
-            self.solver_results, time_solver = self.run_solver(problem, us=us, xs=xs) #, lams=lams, vs=vs) # update results
-
-            # Absolutely MUST deepcopy to extract value and not reference
-            current_xs = deepcopy(self.solver_results.xs.tolist()[0])
-
-            current_us = deepcopy(self.solver_results.us.tolist()[0])
-            last_dual_infeas = deepcopy(self.callback.dual_infeas.tolist()[-1])
-            last_prim_infeas = deepcopy(self.callback.prim_infeas.tolist()[-1])
-
-            final_results_us.append(current_us)
-            final_results_xs.append(current_xs)
-            prim_infeas.append(last_dual_infeas)
-            dual_infeas.append(last_prim_infeas)
-            loop_times.append(time_solver)  #(stop-start)
-
-        return final_results_us, final_results_xs, prim_infeas, dual_infeas, loop_times
 
     def instantiateSolver(self):
         """
@@ -220,19 +69,70 @@ class MPC():
 
         return solver, callback
 
+    def iterate(self, current_xs):
+        """
+        Runs the solver over one iteration
+        Args:
+            current_xs: (list) current state
+        Returns:
+            solver_calc_time (secs)
+        """
 
-    def run_solver(self, problem, *, us, xs):#, lams, vs):
+        if self.solver_stage_number == 0:
+            if args.debug:
+                print("First loop")
+            # create the data
+            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
+            xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
+            # lams = []
+            # vs = []
+
+            # create the stages & problem
+            stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.mpc_steps)
+            self.problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
+            self.solver.setup(self.problem)
+
+        else:
+            if args.debug:
+                print("Running loop")
+
+            # cycle the data
+            us   = self.cycleData(self.results.us.tolist())
+            xs   = self.cycleData(self.results.xs.tolist())
+            # vs   = self.cycleData(self.results.vs.tolist())
+            # lams = self.cycleData(self.results.lams.tolist())
+
+
+            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc_steps
+            # print(f'end of horizon: {end_of_horizon_index}')
+
+            # cycle the stages
+            stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
+            self.problem.replaceStageCircular(stage_model)
+            stage_data = stage_model.createData()
+
+            self.problem.x0_init = current_xs
+            self.solver.cycleProblem(self.problem, stage_data)
+
+            self.solver.setup(self.problem)
+
+            if args.perturbate:
+                xs[0] = np.add(xs[0], np.random.rand(18)*0.01) # perturbation on the state (max without exploding is ~0.01)
+
+        self.results, solver_calc_time = self.run_solver(self.problem, us=us, xs=xs)#, lams = lams, vs = vs) #
+        self.solver_stage_number += 1
+
+        return solver_calc_time
+
+    def run_solver(self, problem, *, us, xs, lams=None, vs=None):
         """
         Runs the solver over 'max_iters' iterations
         """
         start = time.time()
-        self.solver.run(problem, xs, us) #, vs, lams) # TODO warm start vs and lams?
+        self.solver.run(problem, xs, us)#, vs, lams) # TODO warm start vs and lams?
         end = time.time()
         results = self.solver.results
         timer = end - start
-
-        #!
-        print(f'Current xs: {self.solver.results.xs.tolist()[0]}')
 
         if args.debug:
             print("MPC calc time: " + str(timer))
@@ -252,8 +152,13 @@ class MPC():
 
         return pin.rnea(model, data, q0, v0, a)
 
-
-
+    def cycleData(self, list:List)-> List:
+        """
+        Used during mpc iteration, thrashes the first item of the list and adds a copy of the last item to its end
+        """
+        list = list[1:]
+        list.append(list[-1])
+        return list
 
 class BaseStageFactory():
     def __init__(self, robot, space, n_steps, discrete_dynamics):
@@ -286,15 +191,13 @@ class BaseStageFactory():
         """
         stage_coststack = aligator.CostStack(self.space, self.nu)
         cost_list = self._getDynamicCosts(stage_number)
-        # print(f'Waypoints costs list stage n°{stage_num}: {cost_list}')
+        # print(f'Waypoints costs list stage n°{stage_number}: {cost_list}')
         for cost in cost_list:
             stage_coststack.addCost(*cost)
 
         stage_model = aligator.StageModel(stage_coststack, self.discrete_dynamics)
         for constraint in self.stages_definition["constraints"]:
             stage_model.addConstraint(*constraint)
-
-        print(type(stage_model))
         return stage_model
 
     def getTerminalCoststack(self):
@@ -521,22 +424,29 @@ class Visualization():
                                             position=np.array([0.0, 0.0, 0]),
                                             )
 
+        self.vizer.viewer.scene.add_spline_catmull_rom(
+                                                "Input traj",
+                                                points=self.mpc.stage_factory.getFullTrajectory_pt_by_pt(),
+                                                tension=0.5,
+                                                line_width=2.0,
+                                                color=np.array([255, 105, 105]),
+                                                segments=100,
+        )
         self.vizer.display(self.mpc.q0)
 
-    def _callbackVisualization(self,i):
+    def _callbackVisualization(self,i,):
         """
         Callback for each visualization step. Adds the input trajectory (horizon) viewed by the mpc at i step
         """
         input_traj = self.mpc.stage_factory.getFullTrajectory_pt_by_pt()
         horizon_len = self.mpc.parameters.mpc_steps
-        print(f'{i} : {i+horizon_len}')
         if (i+horizon_len) > len(input_traj):
             horizon = input_traj[i:]
             for k in range(len(horizon), horizon_len):
                 horizon.append(input_traj[-1])
         else:
             horizon = input_traj[i:i+self.mpc.parameters.mpc_steps]
-        print(f"horizon :{len(horizon)}")
+        # print(f"horizon :{len(horizon)}")
 
         self.vizer.viewer.scene.add_spline_catmull_rom(
                                                         "Horizon",
@@ -547,9 +457,33 @@ class Visualization():
                                                         segments=100,
         )
 
+    def display_step(self, xs):
+        xs_opt = xs
+        xs = np.array(xs[0])
+        qs = [xs[:self.mpc.n_q]] # take only the first xs and only the q part of it
+        pts = self.get_endpoint_traj(xs_opt)
+
+        traj_executed = []
+        for i in range(pts.T.shape[1]):
+            traj_executed.append(np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])]))
+
+        self.vizer.viewer.scene.add_spline_catmull_rom(
+                                            "Output traj",
+                                            points=traj_executed,
+                                            tension=0.5,
+                                            line_width=2.0,
+                                            color=np.array([6, 117, 255]),
+                                            segments=100,
+                                            )
+
+        print(xs_opt)
+        print(qs)
+        self.vizer.play(qs, self.mpc.parameters.dt, callback=self._callbackVisualization)
+
+
     def display(self, xs):
         """
-        Displays the traj in meshcat as well as graphs #TODO splits the graphs to separate function
+        Displays the traj in meshcat as well as graphs
         """
 
         xs_opt = xs
@@ -571,20 +505,13 @@ class Visualization():
                                                         color=np.array([6, 117, 255]),
                                                         segments=100,
                                                         )
-        self.vizer.viewer.scene.add_spline_catmull_rom(
-                                                        "Input traj",
-                                                        points=self.mpc.stage_factory.getFullTrajectory_pt_by_pt(),
-                                                        tension=0.5,
-                                                        line_width=2.0,
-                                                        color=np.array([255, 105, 105]),
-                                                        segments=100,
-        )
 
         qs = [x[:self.mpc.n_q] for x in xs_opt]
         input_return = input("[Press enter to play, type \"q\" to exit]\n")
         while "q" not in input_return :
             start = time.time()
             self.vizer.play(qs, self.mpc.parameters.dt, callback=self._callbackVisualization)
+
             stop = time.time()
             print("Playing time: " + str(stop - start))
             input_return = input("[Press enter to play, type \"q\" to exit]\n")
@@ -598,6 +525,11 @@ class Visualization():
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
         times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
+
+        print(f'times len : {len(times)}')
+        print(f'xs_opt len : {len(xs_opt)}')
+        print(f'us_opt len : {len(us_opt)}')
+
 
         fig: plt.Figure = plt.figure(constrained_layout=True)
         fig.set_size_inches(6.4, 6.4)
@@ -618,7 +550,7 @@ class Visualization():
 
         for i in range(self.mpc.nu):
             ax: plt.Axes = axarr.flat[i]
-            ax.plot(times[1:], us_opt[:, i])
+            ax.plot(times[:], us_opt[:, i])
             hl = ax.hlines(
                 (self.mpc.stage_factory.u_min[i], self.mpc.stage_factory.u_max[i]), *times[[0, -1]], linestyles="--", colors="r"
             )
@@ -655,7 +587,7 @@ class Visualization():
         plt.tight_layout()
         plt.subplot(212)
         ax: plt.Axes = plt.gca()
-        plt.plot(times[1:], mpc_loop_times, marker=".", color="dodgerblue", label="Calculation time ")
+        plt.plot(times, mpc_loop_times, marker=".", color="dodgerblue", label="Calculation time ")
         ax.set_xlabel("MPC loop time for t")
         ax.set_ylabel("Calculation time (secs)")
 
@@ -691,54 +623,3 @@ class Visualization():
         """
         pin.framesForwardKinematics(self.robot.model, self.robot.data, q)
         return self.robot.data.oMf[self.mpc.tool_id].translation.copy()
-
-
-if __name__ == "__main__":
-
-    patternGen = PatternGenerator([0.5,0.5,0], (0.5,0,0.1))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.1)
-    positions :list = []
-    for i in range (len(x)):
-        positions.append(np.array([x[i], y[i], z[i]]))
-
- # ! debug ======================================================================
-    # print(f'Positions: \n{positions}')
-    # print("num de positions:" + str(len(positions)))
-
-    positions = [np.array([0.5, 0.0, 0.2]),
-                np.array([ 0.5, 0.0, 0.5]),
-                np.array([0.35, 0.35, 0.5]),
-                np.array([0.35, 0.35, 0.2]),
-                np.array([0.0, 0.5, 0.2]),
-                np.array([0.0, 0.5, 0.5]),
-                np.array([-0.35, 0.35, 0.5]),
-                np.array([-0.35, 0.35, 0.2]),
-                np.array([-0.5, 0.0, 0.2]),
-                np.array([-0.5, 0.0, 0.5]),
-                np.array([-0.35, -0.35, 0.5]),
-                np.array([-0.35, -0.35, 0.2]),
-                np.array([0.0, -0.5, 0.2]),
-                np.array([0.0, -0.5, 0.5]),
-                np.array([0.35, -0.35,  0.5]),
-                np.array([0.35, -0.35,  0.2]),
-                np.array([0.5, 0.0, 0.2])]
-
-
-
-    # positions =[
-    #             np.array([0.2, 0.1, 0.2]),
-    #             np.array([0.2, 0.2, 0.2]),
-    #             np.array([0.2, 0.3, 0.2]),
-    #             np.array([0.2, 0.4, 0.2]),
-    #             np.array([0.2, 0.5, 0.2]),
-    #             np.array([0.2, 0.6, 0.2])
-    #             ]
-
-# ! ============================================================================
-    params = Params()
-    mpc = MPC(positions,params)
-    viz = Visualization(mpc)
-    final_results_us, final_results_xs, prim_infeas, dual_infeas, mpc_loop_times = mpc.mpcLoop()
-    viz.plotResults(final_results_xs, final_results_us, prim_infeas, dual_infeas, mpc_loop_times)
-    if args.viz3D:
-        viz.display(final_results_xs)
