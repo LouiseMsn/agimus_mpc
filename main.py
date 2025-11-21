@@ -6,33 +6,12 @@ import numpy as np
 from copy import deepcopy
 
 if __name__=="__main__":
-
-
     parameters = Params()
-    # patternGen = PatternGenerator([0.5,0.5,0], (0.4,0,0))
-    # x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
-    # positions :list = []
-    # for i in range (len(x)): # TODO change return of generate pattern to avoid this
-    #     positions.append(np.array([x[i], y[i], z[i]]))
-
-
-    positions = [np.array([0.5, 0.0, 0.2]), # merry-go-round
-                np.array([ 0.5, 0.0, 0.5]),
-                np.array([0.35, 0.35, 0.5]),
-                np.array([0.35, 0.35, 0.2]),
-                np.array([0.0, 0.5, 0.2]),
-                np.array([0.0, 0.5, 0.5]),
-                np.array([-0.35, 0.35, 0.5]),
-                np.array([-0.35, 0.35, 0.2]),
-                np.array([-0.5, 0.0, 0.2]),
-                np.array([-0.5, 0.0, 0.5]),
-                np.array([-0.35, -0.35, 0.5]),
-                np.array([-0.35, -0.35, 0.2]),
-                np.array([0.0, -0.5, 0.2]),
-                np.array([0.0, -0.5, 0.5]),
-                np.array([0.35, -0.35,  0.5]),
-                np.array([0.35, -0.35,  0.2]),
-                np.array([0.5, 0.0, 0.2])]
+    patternGen = PatternGenerator([0.5,0.5,0], (0.4,0,0))
+    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
+    positions :list = []
+    for i in range (len(x)): # TODO change return of generate pattern to avoid this
+        positions.append(np.array([x[i], y[i], z[i]]))
 
     results_xs = []
     results_us = []
@@ -40,13 +19,15 @@ if __name__=="__main__":
     dual_infeas = []
     mpc_timer = []
 
-
     mpc = MPC(positions, parameters)
     robot_state = mpc.x0
+
     if not args.no_viz3D:
         viz = Visualization(mpc)
 
-    launch_check = input("Enter to launch")
+    launch_check = input("Enter to launch") #! Messes with the plot?
+    while not viz.client_connected:
+        viz.update_plot(mpc.q0, 0) # update a first time
     for t in range (mpc.parameters.n_total_steps+1):
         print(f't:{t}')
         if t == 0:
@@ -61,6 +42,7 @@ if __name__=="__main__":
         xs_no_ee[0][mpc.n_q - 2] = 0
 
         if not args.no_viz3D:
+            viz.update_plot(robot_state[:mpc.n_q], t)
             viz.display_step(xs_no_ee)
 
         # copy the results for plotting
