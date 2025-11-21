@@ -7,7 +7,7 @@ class ArgsBase(tap.Tap):
 
 class Args(ArgsBase):
     debug : bool = False # Adds prints
-    viz3D : bool = False # Displays a 3D visualization
+    no_viz3D : bool = False # Displays a 3D visualization
     perturbate : bool = False # Adds a perturbation to the state input of the MPC
     no_joints_lim: bool = False
     no_torque_lim: bool = False
@@ -29,8 +29,8 @@ class Params():
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 10
-        self.mpc_steps : int = 100
+        self.total_time : int|float = 7
+        self.mpc_steps : int = 200
         self.mpc_max_iter : int = 1 #2
         self.solver_tolerance = 1e-7
         self.solver_rollout_type = aligator.ROLLOUT_LINEAR
@@ -47,12 +47,12 @@ class Params():
         self.stage_joint_reg_cost = 1e-2 #1e-4
         self.stage_vel_reg_cost = 1e-2
         self.command_reg_cost = 1e-2
-        self.term_state_reg_cost = 1e-4
+        self.term_state_reg_cost = 1e-9
         self.waypoint_x_weight = 1e-4
         self.waypoint_frame_pos_weight = 100
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 1
-        self.vel_spread = 0.5
+        self.vel_spread = 0.8
         self.vel_start = 0.5
 
         # Trajectory
