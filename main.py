@@ -25,9 +25,8 @@ if __name__=="__main__":
     if not args.no_viz3D:
         viz = Visualization(mpc)
 
-    launch_check = input("Enter to launch") #! Messes with the plot?
-    while not viz.client_connected:
-        viz.update_plot(mpc.q0, 0) # update a first time
+    launch_check = input("Enter to launch") #! fixed with viser PR #614
+
     for t in range (mpc.parameters.n_total_steps+1):
         print(f't:{t}')
         if t == 0:
