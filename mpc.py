@@ -37,7 +37,7 @@ class MPC():
         pin.updateFramePlacement(self.robot.model, self.robot.data, self.tool_id) # update model placemement
 
         self.discrete_dynamics = self.calcDiscreteDynamics()
-        self.stage_factory = GlueStageFactory(self.robot, self.space, self.parameters.n_total_steps, self.discrete_dynamics, waypoints)
+        self.stage_factory = StageFactory(self.robot, self.space, self.parameters.n_total_steps, self.discrete_dynamics, waypoints)
 
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
@@ -154,8 +154,8 @@ class MPC():
         list.append(list[-1])
         return list
 
-class BaseStageFactory():
-    def __init__(self, robot, space, n_steps, discrete_dynamics):
+class StageFactory():
+    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints):
         self.robot = robot
         self.space = space
         self.nv = self.robot.model.nv
@@ -172,12 +172,33 @@ class BaseStageFactory():
         self.stages : list[aligator.stageModel] = []
         self.problem : aligator.TrajOptProblem
 
+        self.waypoints = waypoints
+
+        self.spline = self.getSplineTrajectory()
+
+        if not args.no_waypoints:
+            self._addWaypointCosts()
+
+        if not args.no_orientation_cost:
+            self._addOrientationCosts()
+
         # Add base costs & constraints present in all problems:
         if not args.no_joints_lim:
             self._addJointsLimitsConstraints()
         if not args.no_torque_lim:
             self._addTorqueLimitsConstraints()
         self._addRegulationCosts()
+
+    def getSplineTrajectory(self): # TODO is correct to have this here?
+        """
+        Returns the `SplineGenerator` object used to get interpolated waypoints positions
+        """
+        tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
+        start_pos = self.robot.data.oMf[tool_id].translation.copy()
+        start_ori = self.robot.data.oMf[tool_id].rotation.copy()
+        start_ori_rpy = pin.rpy.matrixToRpy(start_ori)
+
+        return SplineGenerator(start_pos, start_ori_rpy, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
 
     def getStageModel(self, stage_number):
         """
@@ -203,7 +224,6 @@ class BaseStageFactory():
 
         return terminal_coststack
 
-
     def fabricateStages(self, current_stage, duration):
         """
         Builds the stages from `current_stage` to `duration` using the costs stored in `self.stages_definition`
@@ -226,6 +246,9 @@ class BaseStageFactory():
 
         return stages, terminal_coststack
 
+    # ==========================================================================
+    # Cost & Constraints functions
+    # ==========================================================================
     def _addJointsLimitsConstraints(self) -> None:
         """
         Adds joints limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
@@ -278,46 +301,6 @@ class BaseStageFactory():
         stage_reg_cost = [("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))]
         self.stages_definition["stage dependant costs"].append(stage_reg_cost)
 
-    def _getDynamicCosts(self, stage_number):
-        """
-        Returns a list of costs for the current stage. If a cost is not defined for a given `stage_number`, the last instance of this cost is returned instead.
-        """
-        stage_costs = []
-        for cost_list in self.stages_definition["stage dependant costs"]:
-            if stage_number < len(cost_list):
-                stage_costs.append(cost_list[stage_number])
-            else:
-                stage_costs.append(cost_list[-1])
-        return stage_costs
-
-    def _addAutoCollisionsConstraints(self):
-        #TODO
-        pass
-
-    def getStagesDefinition(self):
-        return self.stages_definition
-
-    def getStagesList(self): #! remove?
-        return self.stages
-
-class GlueStageFactory(BaseStageFactory):
-    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints):
-        super().__init__(robot, space, n_steps, discrete_dynamics)
-        self.waypoints = waypoints
-        tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
-        start_pos = self.robot.data.oMf[tool_id].translation.copy()
-
-        start_ori = self.robot.data.oMf[tool_id].rotation.copy()
-        start_ori_rpy = pin.rpy.matrixToRpy(start_ori)
-        self.spline = SplineGenerator(start_pos, start_ori_rpy, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
-
-        if not args.no_waypoints:
-            self._addWaypointCosts()
-
-        if not args.no_orientation_cost:
-            self._addOrientationCosts()
-
-
     def _addWaypointCosts(self):
         """
         For each stage, adds a cost tied to matching the end effector frame to a waypoint frame
@@ -338,6 +321,7 @@ class GlueStageFactory(BaseStageFactory):
 
             waypoint_costs.append(cost)
         self.stages_definition["stage dependant costs"].append(waypoint_costs)
+
 
     def _addOrientationCosts(self):
         """
@@ -364,7 +348,34 @@ class GlueStageFactory(BaseStageFactory):
             orientation_costs.append(cost)
         self.stages_definition["stage dependant costs"].append(orientation_costs)
 
-    def getFullTrajectory(self):
+
+    def _addAutoCollisionsConstraints(self):
+        #TODO
+        pass
+
+    # ==========================================================================
+    # Utils
+    # ==========================================================================
+
+    def _getDynamicCosts(self, stage_number):
+        """
+        Returns a list of costs for the current stage. If a cost is not defined for a given `stage_number`, the last instance of this cost is returned instead.
+        """
+        stage_costs = []
+        for cost_list in self.stages_definition["stage dependant costs"]:
+            if stage_number < len(cost_list):
+                stage_costs.append(cost_list[stage_number])
+            else:
+                stage_costs.append(cost_list[-1])
+        return stage_costs
+
+    def getStagesDefinition(self):
+        return self.stages_definition
+
+    def getStagesList(self): #! remove?
+        return self.stages
+
+    def getFullTrajectory(self): # TODO : move to pattern generator?
         target = self.spline.get_interpolated_pose(0)
         traj_x = np.array([float(target[0])])
         traj_y = np.array([float(target[1])])
@@ -378,7 +389,7 @@ class GlueStageFactory(BaseStageFactory):
 
         return traj
 
-    def getFullTrajectory_pt_by_pt(self):
+    def getFullTrajectory_pt_by_pt(self): # TODO : move to pattern generator?
         traj = []
         for i in range(self.n_steps):
             target = self.spline.get_interpolated_pose(i*self.parameters.dt)
