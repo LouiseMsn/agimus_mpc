@@ -52,6 +52,7 @@ class Params():
         self.waypoint_frame_pos_weight = 100
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 1
+        self.collision_weight = 500
         self.vel_spread = 0.8
         self.vel_start = 0.5
 
@@ -97,4 +98,5 @@ class Params():
                     f'\t\tState: {self.waypoint_x_weight}\n'\
                     f'\t\tFrame position: {self.waypoint_frame_pos_weight}\n'\
                     f'\t\tFrame velocity: {self.waypoint_frame_vel_weight}\n'\
-                f'\n\tOrientation: {self.orientation_weight}\n'
+                f'\n\tOrientation: {self.orientation_weight}\n'\
+                f'\n\tCollision: {self.collision_weight}\n'

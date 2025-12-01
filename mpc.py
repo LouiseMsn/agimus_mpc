@@ -8,18 +8,19 @@ import pinocchio as pin
 import numpy as np
 from typing import List
 import time
-
+from mpcUtils import StagesDefinition
 
 
 class MPC():
     def __init__(self, waypoints, parameters):
-        print(args)
+        # print(args)
         self.parameters = parameters
         self.waypoints = waypoints
-        print(self.parameters)
+        # print(self.parameters)
 
         # Initialize robot
         self.robot = ex_robot_data.load(self.parameters.robot_name)
+
         self.space = self.space = manifolds.MultibodyPhaseSpace(self.robot.model)
         self.tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         self.world_frame_id = self.robot.model.getFrameId(self.parameters.world_frame_name)
@@ -168,7 +169,8 @@ class StageFactory():
 
         self.parameters = Params()
 
-        self.stages_definition: dict[str,list[tuple|list]] = {"constraints":[], "terminal costs":[], "stage dependant costs":[]} # Constraints are not stage-dependant
+        # self.stages_definition: dict[str,list[tuple|list]] = {"constraints":[], "terminal costs":[], "stage dependant costs":[], "stage independant costs":[]} # Constraints are not stage-dependant
+        self.stages_definition = StagesDefinition()
         self.stages : list[aligator.stageModel] = []
         self.problem : aligator.TrajOptProblem
 
@@ -188,6 +190,7 @@ class StageFactory():
         if not args.no_torque_lim:
             self._addTorqueLimitsConstraints()
         self._addRegulationCosts()
+        self._addAutoCollisionsConstraints()
 
     def getSplineTrajectory(self): # TODO is correct to have this here?
         """
@@ -210,7 +213,7 @@ class StageFactory():
             stage_coststack.addCost(*cost)
 
         stage_model = aligator.StageModel(stage_coststack, self.discrete_dynamics)
-        for constraint in self.stages_definition["constraints"]:
+        for constraint in self.stages_definition.constraints:
             stage_model.addConstraint(*constraint)
         return stage_model
 
@@ -219,7 +222,7 @@ class StageFactory():
         Returns the terminal coststack calculated from the `stages_definitions` dict.
         """
         terminal_coststack = aligator.CostStack(self.space, self.nu)
-        for terminal_cost in self.stages_definition["terminal costs"]:
+        for terminal_cost in self.stages_definition.terminal_costs:
             terminal_coststack.addCost(*terminal_cost)
 
         return terminal_coststack
@@ -230,17 +233,21 @@ class StageFactory():
         """
 
         terminal_coststack = aligator.CostStack(self.space, self.nu)
-        for terminal_cost in self.stages_definition["terminal costs"]:
+        for terminal_cost in self.stages_definition.terminal_costs:
             terminal_coststack.addCost(*terminal_cost)
         stages = []
         for stage_num in range(current_stage, duration + current_stage):
             stage_coststack = aligator.CostStack(self.space, self.nu)
             cost_list = self._getDynamicCosts(stage_num)
+            if len(self.stages_definition.stage_indep_costs) != 0:
+                cost_list = cost_list + self.stages_definition.stage_indep_costs
+
+            # print(f"stage num: {stage_num}; cost: {cost_list}")
             for cost in cost_list:
                 stage_coststack.addCost(*cost)
 
             stage_model = aligator.StageModel(stage_coststack, self.discrete_dynamics)
-            for constraint in self.stages_definition["constraints"]:
+            for constraint in self.stages_definition.constraints:
                 stage_model.addConstraint(*constraint)
             stages.append(stage_model)
 
@@ -273,7 +280,7 @@ class StageFactory():
             box_constraint = constraints.BoxConstraint(np.array([q_min]), np.array([q_max]))
 
             constraint = (joint_angle_residual, box_constraint)
-            self.stages_definition["constraints"].append(constraint)
+            self.stages_definition.constraints.append(constraint)
 
     def _addTorqueLimitsConstraints(self):
         """
@@ -284,7 +291,7 @@ class StageFactory():
         ndx = self.space.ndx
         residual = aligator.ControlErrorResidual(ndx, nu)
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
-        self.stages_definition["constraints"].append((residual, constraint))
+        self.stages_definition.constraints.append((residual, constraint))
 
     def _addRegulationCosts(self):
         wt_x = self.parameters.stage_joint_reg_cost*np.ones(self.ndx)
@@ -296,10 +303,10 @@ class StageFactory():
         wt_x_term = self.parameters.term_state_reg_cost*np.eye(self.ndx)
 
         terminal_cost = ("term reg", aligator.QuadraticCost(wt_x_term, wt_u * 0))
-        self.stages_definition["terminal costs"].append(terminal_cost)
+        self.stages_definition.terminal_costs.append(terminal_cost)
 
         stage_reg_cost = [("reg", aligator.QuadraticCost(wt_x * self.parameters.dt, wt_u * self.parameters.dt))]
-        self.stages_definition["stage dependant costs"].append(stage_reg_cost)
+        self.stages_definition.stage_dep_costs.append(stage_reg_cost)
 
     def _addWaypointCosts(self):
         """
@@ -320,7 +327,7 @@ class StageFactory():
             cost = ("frame", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
 
             waypoint_costs.append(cost)
-        self.stages_definition["stage dependant costs"].append(waypoint_costs)
+        self.stages_definition.stage_dep_costs.append(waypoint_costs)
 
 
     def _addOrientationCosts(self):
@@ -346,12 +353,40 @@ class StageFactory():
 
             cost = ("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))
             orientation_costs.append(cost)
-        self.stages_definition["stage dependant costs"].append(orientation_costs)
-
+        self.stages_definition.stage_dep_costs.append(orientation_costs)
 
     def _addAutoCollisionsConstraints(self):
-        #TODO
-        pass
+        """
+        Adds a cost in `self.stages_definition["stage dependant costs"]` linked to self collisions of the robot (based on the collision pairs defined in the SRDF loaded by `example-robot-data`).
+        """
+
+
+        # conda_prefix = os.environ["CONDA_PREFIX"]
+        # srdf_path = conda_prefix + "/share/example-robot-data/robots/panda_description/srdf/panda.srdf"
+        # print(srdf_path)
+        # pin.loadReferenceConfigurations(self.robot.model,srdf_path)
+        # print("configuration loaded")
+
+        # # Reference configurations
+        # pin.loadReferenceConfigurations(self.robot.model, srdf_path)
+
+        # # Collision pairs
+        # self.robot.collision_model.removeAllCollisionPairs()
+        # self.robot.collision_model.addAllCollisionPairs()
+        # pin.removeCollisionPairs(self.robot.model, self.robot.collision_model, srdf_path)
+
+        collisions_pairs = self.robot.collision_model.collisionPairs.tolist()
+        collision_constraint = constraints.BoxConstraint(np.array([0.5]), np.array([100]))
+
+        for i in range(len(collisions_pairs)):
+            collision_residual = aligator.FrameCollisionResidual(self.ndx, self.nu, self.robot.model, self.robot.collision_model, i)
+            # self.stages_definition.constraints.append((collision_residual, collision_constraint))
+            self.stages_definition.stage_indep_costs.append((f"collision_{i}", aligator.QuadraticResidualCost(self.space, collision_residual, self.parameters.collision_weight * np.eye(collision_residual.nr))))
+
+        # To change to constraints
+
+
+
 
     # ==========================================================================
     # Utils
@@ -362,7 +397,7 @@ class StageFactory():
         Returns a list of costs for the current stage. If a cost is not defined for a given `stage_number`, the last instance of this cost is returned instead.
         """
         stage_costs = []
-        for cost_list in self.stages_definition["stage dependant costs"]:
+        for cost_list in self.stages_definition.stage_dep_costs:
             if stage_number < len(cost_list):
                 stage_costs.append(cost_list[stage_number])
             else:
@@ -376,6 +411,9 @@ class StageFactory():
         return self.stages
 
     def getFullTrajectory(self): # TODO : move to pattern generator?
+        """
+        Returns the full trajectory formatted as a np.array([np.array([x0,x1,..]), np.array([y0,y1,..]), np.array([z0,z1,..])])
+        """
         target = self.spline.get_interpolated_pose(0)
         traj_x = np.array([float(target[0])])
         traj_y = np.array([float(target[1])])
@@ -386,10 +424,12 @@ class StageFactory():
             traj_y = np.append(traj_y, float(target[1]))
             traj_z = np.append(traj_z, float(target[2]))
         traj = np.array([traj_x, traj_y, traj_z])
-
         return traj
 
     def getFullTrajectory_pt_by_pt(self): # TODO : move to pattern generator?
+        """
+        Return the full trajectory formatted as np.array([x0,y0,z0], [x1,y1,z1], ...)
+        """
         traj = []
         for i in range(self.n_steps):
             target = self.spline.get_interpolated_pose(i*self.parameters.dt)
