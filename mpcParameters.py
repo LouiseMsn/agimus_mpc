@@ -24,12 +24,12 @@ class Params():
         # Robot
         self.robot_name : str = "panda"
         self.world_frame_name : str = "universe"
-        self.start_pose : np.ndarray = np.array([0, -1, 0, -2.5, 0.0, 2, 0.0, 0.0, 0.0])
+        self.start_pose : np.ndarray = np.array([-np.pi/2, -1, 0, -2.5, 0.0, 2, 0.0, 0.0, 0.0])
         self.tool_frame_name : str = "panda_hand_tcp"
 
         # MPC
         self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 7
+        self.total_time : int|float = 20
         self.mpc_steps : int = 200
         self.mpc_max_iter : int = 1 #2
         self.solver_tolerance = 1e-7
@@ -46,15 +46,15 @@ class Params():
         # Weights:
         self.stage_joint_reg_cost = 1e-2 #1e-4
         self.stage_vel_reg_cost = 1e-2
-        self.command_reg_cost = 1e-2
-        self.term_state_reg_cost = 1e-9
+        self.command_reg_cost = 1e-1
+        self.term_state_reg_cost = 1e-30
         self.waypoint_x_weight = 1e-4
         self.waypoint_frame_pos_weight = 100
         self.waypoint_frame_vel_weight = 1
         self.orientation_weight = 1
-        self.collision_weight = 500
-        self.vel_spread = 0.8
-        self.vel_start = 0.5
+        self.collision_weight = 0.1 # very sensitive, max around ~ 0.1
+        self.vel_spread = 0.1
+        self.vel_start = 0.1
 
         # Trajectory
         self.tool_orientation = np.array([np.pi, 0., 0.])
