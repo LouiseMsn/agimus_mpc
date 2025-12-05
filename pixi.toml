@@ -1,0 +1,17 @@
+[workspace]
+authors = ["LouiseMsn <louise.manson@inria.fr>"]
+channels = ["conda-forge"]
+name = "agimus_mpc"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[dependencies]
+aligator = ">=0.17"
+example-robot-data = "*"
+example-robot-data-loaders = "*"
+pycollada = "*"
+ipython = "*"
+viser = ">=1.0"
+
+[tasks]
+main = "ipython main.py"

@@ -1,27 +1,9 @@
 # Model Predictive Control for AGIMUS WP 6
-## Install
-To install dependencies :
+## Install and Usage
 ```bash
-git clone git@github.com:LouiseMsn/aligator.git -b viser
-cd aligator
-pixi run -e all build
-pixi shell -e all
-cd build
-ninja install
-```
-Next time juste use:
-```bash
-cd aligator
-pixi shell -e all
-```
+pixi run main
 
-## Usage
-The code is split in two branches:
-- `main` for [aligator 0.15.0](github.com/Simple-Robotics/aligator/releases/tag/v0.15.0)
-- `aligator16` for [aligator 0.16.0](https://github.com/Simple-Robotics/aligator/releases/tag/v0.16.0) 
-The main code is located in `mpc_glue.py`, to launch the demo :
-```bash
-python main.py
+pixi run main -- <my_args>
 ```
 Options:
 - **display**: (default False)
