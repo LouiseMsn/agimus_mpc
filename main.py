@@ -4,14 +4,49 @@ from mpcParameters import Params, args
 from mpcTrajectoryUtils import PatternGenerator
 import numpy as np
 from copy import deepcopy
+import pinocchio as pin
 
 if __name__=="__main__":
     parameters = Params()
-    patternGen = PatternGenerator([0.5,0.5,0], (0.4,0,0))
+
+    # Waypoints ================================================================
+    patternGen = PatternGenerator([0.5,0.5,0], (0.6,0,0.3))
     x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
     positions :list = []
     for i in range (len(x)): # TODO change return of generate pattern to avoid this
         positions.append(np.array([x[i], y[i], z[i]]))
+
+    # positions =[ # line²
+    #             np.array([ 0.3, 0, 0.2]),
+    #             np.array([ 0.2, 0, 0.2]),
+    #             np.array([ 0.1, 0, 0.2]),
+    #             np.array([ 0.0, 0, 0.2]),
+    #             np.array([-0.1, 0, 0.2]),
+    #             np.array([-0.2, 0, 0.2]),
+    #             np.array([-0.3, 0, 0.2])
+    #             ]
+
+    # positions =[ # ligne a coté de l'épaule
+    #             np.array([-0.15, -0.3, 0.2]),
+    #             np.array([-0.15, -0.2, 0.2]),
+    #             np.array([-0.15, -0.1, 0.2]),
+    #             np.array([-0.15, 0.0, 0.2]),
+    #             np.array([-0.15, 0.1, 0.2]),
+    #             np.array([-0.15, 0.2, 0.2]),
+    #             np.array([-0.15, 0.3, 0.2])
+    #             ]
+
+    # positions =[ #vertical line
+    #             np.array([ 0.0 , 0, 0.8]),
+    #             np.array([ 0.0 , 0, 0.7]),
+    #             np.array([ 0.0 , 0, 0.6]),
+    #             np.array([ 0.0 , 0, 0.5]),
+    #             np.array([ 0.0 , 0, 0.4]),
+    #             np.array([ 0.0 , 0, 0.3]),
+    #             np.array([ 0.0 , 0, 0.2])
+    #             ]
+
+    # MPC ======================================================================
 
     results_xs = []
     results_us = []
@@ -43,6 +78,9 @@ if __name__=="__main__":
         if not args.no_viz3D:
             viz.update_plot(robot_state[:mpc.n_q], t)
             viz.display_step(xs_no_ee)
+
+
+        # print(mpc.results.gains.tolist()) # test to get gains
 
         # copy the results for plotting
         current_xs = deepcopy(mpc.results.xs.tolist()[0])
@@ -76,12 +114,3 @@ if __name__=="__main__":
     #             np.array([0.35, -0.35,  0.5]),
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
-
-    # positions =[ # line
-    #             np.array([0.2, 0.1, 0.2]),
-    #             np.array([0.2, 0.2, 0.2]),
-    #             np.array([0.2, 0.3, 0.2]),
-    #             np.array([0.2, 0.4, 0.2]),
-    #             np.array([0.2, 0.5, 0.2]),
-    #             np.array([0.2, 0.6, 0.2])
-    #             ]
