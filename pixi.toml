@@ -14,4 +14,4 @@ ipython = "*"
 viser = ">=1.0"
 
 [tasks]
-run = "ipython main.py"
+main = "ipython main.py"
