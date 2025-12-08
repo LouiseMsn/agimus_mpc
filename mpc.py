@@ -8,6 +8,7 @@ import pinocchio as pin
 import numpy as np
 from typing import List
 import time
+import os
 from mpcUtils import StagesDefinition
 
 
@@ -89,11 +90,12 @@ class MPC():
             self.solver.setup(self.problem)
 
         else:
+
             # cycle the data
             us   = self.cycleData(self.results.us.tolist())
             xs   = self.cycleData(self.results.xs.tolist())
 
-            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc_steps
+            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc_steps-1 # -1 because the first stage is 0
 
             # cycle the stages
             stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
@@ -190,7 +192,7 @@ class StageFactory():
         if not args.no_torque_lim:
             self._addTorqueLimitsConstraints()
         self._addRegulationCosts()
-        self._addAutoCollisionsConstraints()
+        # self._addAutoCollisionsConstraints()
 
     def getSplineTrajectory(self): # TODO is correct to have this here?
         """
@@ -201,7 +203,7 @@ class StageFactory():
         start_ori = self.robot.data.oMf[tool_id].rotation.copy()
         start_ori_rpy = pin.rpy.matrixToRpy(start_ori)
 
-        return SplineGenerator(start_pos, start_ori_rpy, self.waypoints,v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
+        return SplineGenerator(start_pos, start_ori_rpy, self.waypoints, v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
 
     def getStageModel(self, stage_number):
         """
@@ -324,7 +326,7 @@ class StageFactory():
             wt_x_term[:] = self.parameters.waypoint_x_weight
             wt_frame_pos = self.parameters.waypoint_frame_pos_weight * np.eye(frame_pos_fn.nr)
 
-            cost = ("frame", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
+            cost = (f"frame_{t}", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
 
             waypoint_costs.append(cost)
         self.stages_definition.stage_dep_costs.append(waypoint_costs)
@@ -351,42 +353,25 @@ class StageFactory():
             # Ce nouveau résidu ne sortira que la partie orientation de l'erreur de pose.
             orientation_only_residual = aligator.LinearFunctionComposition(placement_residual, A_selector, b_selector)
 
-            cost = ("orientation", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))
+            cost = (f"orientation_{t}", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.orientation_weight * np.eye(3)))
             orientation_costs.append(cost)
         self.stages_definition.stage_dep_costs.append(orientation_costs)
 
     def _addAutoCollisionsConstraints(self):
         """
         Adds a cost in `self.stages_definition["stage dependant costs"]` linked to self collisions of the robot (based on the collision pairs defined in the SRDF loaded by `example-robot-data`).
+        WIP for now
         """
 
-
-        # conda_prefix = os.environ["CONDA_PREFIX"]
-        # srdf_path = conda_prefix + "/share/example-robot-data/robots/panda_description/srdf/panda.srdf"
-        # print(srdf_path)
-        # pin.loadReferenceConfigurations(self.robot.model,srdf_path)
-        # print("configuration loaded")
-
-        # # Reference configurations
-        # pin.loadReferenceConfigurations(self.robot.model, srdf_path)
-
-        # # Collision pairs
-        # self.robot.collision_model.removeAllCollisionPairs()
-        # self.robot.collision_model.addAllCollisionPairs()
-        # pin.removeCollisionPairs(self.robot.model, self.robot.collision_model, srdf_path)
-
-        collisions_pairs = self.robot.collision_model.collisionPairs.tolist()
-        collision_constraint = constraints.BoxConstraint(np.array([0.5]), np.array([100]))
-
-        for i in range(len(collisions_pairs)):
+        #! test
+        pairs_2_add = [23,35]
+        for i in pairs_2_add:
             collision_residual = aligator.FrameCollisionResidual(self.ndx, self.nu, self.robot.model, self.robot.collision_model, i)
-            # self.stages_definition.constraints.append((collision_residual, collision_constraint))
-            self.stages_definition.stage_indep_costs.append((f"collision_{i}", aligator.QuadraticResidualCost(self.space, collision_residual, self.parameters.collision_weight * np.eye(collision_residual.nr))))
+            # log barrier : weight*ln(function)
+            self.stages_definition.stage_indep_costs.append((f"collision_{i}", aligator.LogResidualCost(self.space, collision_residual, self.parameters.collision_weight * np.eye(collision_residual.nr))))
 
-        # To change to constraints
-
-
-
+            collision_constraint = constraints.BoxConstraint(np.array([0.05]), np.array([100]))
+            self.stages_definition.constraints.append((collision_residual, collision_constraint))
 
     # ==========================================================================
     # Utils
