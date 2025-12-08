@@ -134,9 +134,10 @@ class Visualization():
         pts = self.get_endpoint_traj(xs_opt)
 
         future_trajectory = []
-        for i in range(pts.T.shape[1]):
+        for i in range(pts.T.shape[1]-1):
             future_trajectory.append(np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])]))
 
+        print(f'len of future traj: {len(future_trajectory)}')
         self.vizer.viewer.scene.add_spline_catmull_rom(
                                             "Output traj",
                                             points=future_trajectory,
@@ -206,10 +207,10 @@ class Visualization():
         for i in range(self.mpc.nu):
             ax: plt.Axes = axarr.flat[i]
             ax.plot(times[:], us_opt[:, i])
-            hl = ax.hlines(
-                (self.mpc.stage_factory.u_min[i], self.mpc.stage_factory.u_max[i]), *times[[0, -1]], linestyles="--", colors="r"
-            )
-            handles_.append(hl)
+            # hl = ax.hlines(
+            #     (self.mpc.stage_factory.u_min[i], self.mpc.stage_factory.u_max[i]), *times[[0, -1]], linestyles="--", colors="r"
+            # )
+            # handles_.append(hl)
             fontsize = 7
             ax.set_ylabel("$u_{{%d}}$" % (i + 1), fontsize=fontsize)
             ax.tick_params(axis="both", labelsize=fontsize)
