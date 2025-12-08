@@ -46,7 +46,7 @@ class Params():
         # Weights:
         self.stage_joint_reg_cost = 1e-2 #1e-4
         self.stage_vel_reg_cost = 1e-2
-        self.command_reg_cost = 1e-1
+        self.command_reg_cost = 1e-4
         self.term_state_reg_cost = 1e-30
         self.waypoint_x_weight = 1e-4
         self.waypoint_frame_pos_weight = 100
