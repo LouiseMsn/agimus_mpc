@@ -11,10 +11,7 @@ if __name__=="__main__":
 
     # Waypoints ================================================================
     patternGen = PatternGenerator([0.5,0.5,0], (0.6,0,0.3))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
-    positions :list = []
-    for i in range (len(x)): # TODO change return of generate pattern to avoid this
-        positions.append(np.array([x[i], y[i], z[i]]))
+    positions = patternGen.generate_pattern('zigzag_curve',stride=0.05)
 
     # positions =[ # line²
     #             np.array([ 0.3, 0, 0.2]),

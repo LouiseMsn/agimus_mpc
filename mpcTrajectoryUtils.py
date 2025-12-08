@@ -84,7 +84,7 @@ class PatternGenerator:
                 y_tmp += stride
                 x_tmp = x[-1]  # continue from last x
                 z_tmp = z[-1]
-        return x, y, z
+        return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
     def zig_zag_curve(self, step=10, stride=0.2, orientation='vertical'):
         """
@@ -149,18 +149,20 @@ class PatternGenerator:
                     curve_start = (x_tmp, y_tmp - stride, z_tmp)
 
                 # Ajout de la courbe de transition
-                x_curve, y_curve, z_curve = self.curve_arc(
+                traj_curve = self.curve_arc(
                     start_point=curve_start,
                     radius=stride / 2,
                     dir=dir_str,
                     step=step // 2
                 )
+                x_curve = [traj_curve[i][0] for i in range(len(traj_curve))]
+                y_curve = [traj_curve[i][1] for i in range(len(traj_curve))]
+                z_curve = [traj_curve[i][2] for i in range(len(traj_curve))]
                 x.extend(x_curve)
                 y.extend(y_curve)
                 z.extend(z_curve)
 
-        return x, y, z
-
+        return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
     import numpy as np
 
@@ -202,7 +204,7 @@ class PatternGenerator:
             y.append(yi)
             z.append(start_point[2])  # z constant
 
-        return x, y, z
+        return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
     def spiral_from_center(self, stride=1.0):
         """
@@ -272,8 +274,7 @@ class PatternGenerator:
             if not (x_min <= new_x <= x_max and y_min <= new_y <= y_max):
                 break
 
-        return x, y, z
-
+        return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
 class SplineGenerator:
     """
@@ -485,7 +486,7 @@ def RPY2Mat(roll,pitch,yaw):
                 [np.sin(yaw), np.cos(yaw), 0],
                 [0, 0, 1]
             ])
-    Ry = np.array([
+    Ry = np.array([v_spread
                 [np.cos(pitch), 0, np.sin(pitch)],
                 [0, 1, 0],
                 [-np.sin(pitch), 0, np.cos(pitch)]
