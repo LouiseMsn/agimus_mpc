@@ -4,20 +4,21 @@ from mpcParameters import Params, args
 from mpcTrajectoryUtils import PatternGenerator, TestTrajs
 import numpy as np
 from copy import deepcopy
-import pinocchio as pin
+from pathlib import Path
 
 if __name__=="__main__":
-    parameters = Params()
+    config_path = Path("config/mpc_config.yaml")
+    parameters = Params(config_path)
 
     # Waypoints ================================================================
     patternGen = PatternGenerator([0.5,0.5,0], (0.6,0,0.3))
     positions = patternGen.generate_pattern('zigzag_curve',stride=0.05)
 
     test_trajs = TestTrajs()
-    start = [0, -0.5, 0.2]
+    start = [-0.5, -0.5, 0]
     end = [1, 2, 1]
     # positions = test_trajs.line(start, end)
-    positions = test_trajs.sine(start_point=start,length=1.5,period=0.01,amplitude=0.2, dist_between_points=0.01, sine_axis="Z", ampl_axis="X")
+    # positions = test_trajs.sine(start_point=start,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
 
     # positions =[ # line²
     #             np.array([ 0.3, 0, 0.2]),
@@ -60,13 +61,13 @@ if __name__=="__main__":
     mpc = MPC(positions, parameters)
     robot_state = mpc.x0
 
-    if not args.no_viz3D:
+    if not args.no_3Dviz:
         viz = Visualization(mpc)
 
     launch_check = input("Enter to launch") #! fixed with viser PR #614
 
     for t in range (mpc.parameters.n_total_steps+1):
-        print(f't:{t}')
+        # print(f't:{t}')
         if t == 0:
             robot_state = mpc.x0
         else:
@@ -78,7 +79,7 @@ if __name__=="__main__":
         xs_no_ee[0][mpc.n_q - 1] = 0
         xs_no_ee[0][mpc.n_q - 2] = 0
 
-        if not args.no_viz3D:
+        if not args.no_3Dviz:
             viz.update_plot(robot_state[:mpc.n_q], t)
             viz.display_step(xs_no_ee)
 

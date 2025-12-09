@@ -15,7 +15,7 @@ def runBenchParallel(nb_threads, nb_stages):
     params = Params()
     params.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
     params.solver_num_threads = nb_threads
-    params.mpc_steps = nb_stages
+    params.nb_steps_horizon = nb_stages
     mpc = MPC(parameters=params, waypoints=positions)
     mpc.iterate(mpc.x0)
     robot_state = mpc.results.xs.tolist()[0]
@@ -30,7 +30,7 @@ def runBenchSerial(nb_stages):
     params= Params()
     params.solver_linear_solver_choice = aligator.LQ_SOLVER_SERIAL
     print(nb_stages)
-    params.mpc_steps = nb_stages
+    params.nb_steps_horizon = nb_stages
     mpc = MPC(parameters=params, waypoints=positions)
     delta_t = mpc.calcNextCommand(t=0, current_xs=None)
 

@@ -14,10 +14,10 @@ from mpcUtils import StagesDefinition
 
 class MPC():
     def __init__(self, waypoints, parameters):
-        # print(args)
+        print(args)
         self.parameters = parameters
         self.waypoints = waypoints
-        # print(self.parameters)
+        print(self.parameters)
 
         # Initialize robot
         self.robot = ex_robot_data.load(self.parameters.robot_name)
@@ -39,7 +39,7 @@ class MPC():
         pin.updateFramePlacement(self.robot.model, self.robot.data, self.tool_id) # update model placemement
 
         self.discrete_dynamics = self.calcDiscreteDynamics()
-        self.stage_factory = StageFactory(self.robot, self.space, self.parameters.n_total_steps, self.discrete_dynamics, waypoints)
+        self.stage_factory = StageFactory(self.robot, self.space, self.parameters.n_total_steps, self.discrete_dynamics, waypoints, self.parameters)
 
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
@@ -79,13 +79,13 @@ class MPC():
 
         if self.solver_stage_number == 0:
             # create the data
-            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc_steps)]
+            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.nb_steps_horizon)]
             xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
             # lams = []
             # vs = []
 
             # create the stages & problem
-            stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.mpc_steps)
+            stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.nb_steps_horizon)
             self.problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
             self.solver.setup(self.problem)
 
@@ -95,7 +95,7 @@ class MPC():
             us   = self.cycleData(self.results.us.tolist())
             xs   = self.cycleData(self.results.xs.tolist())
 
-            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc_steps-1 # -1 because the first stage is 0
+            end_of_horizon_index = self.solver_stage_number + self.parameters.nb_steps_horizon-1 # -1 because the first stage is 0
 
             # cycle the stages
             stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
@@ -158,7 +158,7 @@ class MPC():
         return list
 
 class StageFactory():
-    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints):
+    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params):
         self.robot = robot
         self.space = space
         self.nv = self.robot.model.nv
@@ -169,7 +169,7 @@ class StageFactory():
         self.discrete_dynamics = discrete_dynamics
         self.n_steps = n_steps
 
-        self.parameters = Params()
+        self.parameters = params
 
         # self.stages_definition: dict[str,list[tuple|list]] = {"constraints":[], "terminal costs":[], "stage dependant costs":[], "stage independant costs":[]} # Constraints are not stage-dependant
         self.stages_definition = StagesDefinition()
@@ -244,7 +244,6 @@ class StageFactory():
             if len(self.stages_definition.stage_indep_costs) != 0:
                 cost_list = cost_list + self.stages_definition.stage_indep_costs
 
-            # print(f"stage num: {stage_num}; cost: {cost_list}")
             for cost in cost_list:
                 stage_coststack.addCost(*cost)
 
@@ -322,8 +321,6 @@ class StageFactory():
             v_ref = pin.Motion()
             v_ref.np[:] = 0
 
-            wt_x_term = np.zeros((self.ndx, self.ndx))
-            wt_x_term[:] = self.parameters.waypoint_x_weight
             wt_frame_pos = self.parameters.waypoint_frame_pos_weight * np.eye(frame_pos_fn.nr)
 
             cost = (f"frame_{t}", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))

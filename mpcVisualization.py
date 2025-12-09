@@ -96,14 +96,14 @@ class Visualization():
         """
         t = self.mpc.solver_stage_number
         input_traj = self.mpc.stage_factory.getFullTrajectory_pt_by_pt()
-        horizon_len = self.mpc.parameters.mpc_steps
+        horizon_len = self.mpc.parameters.nb_steps_horizon
 
         if (t+horizon_len) > len(input_traj):
             horizon = input_traj[t:]
             for k in range(len(horizon), horizon_len):
                 horizon.append(input_traj[-1])
         else:
-            horizon = input_traj[t:t+self.mpc.parameters.mpc_steps]
+            horizon = input_traj[t:t+self.mpc.parameters.nb_steps_horizon]
 
         self.vizer.viewer.scene.add_spline_catmull_rom(
                                                         "Horizon",
@@ -137,7 +137,6 @@ class Visualization():
         for i in range(pts.T.shape[1]-1):
             future_trajectory.append(np.array([float(pts.T[0][i]), float(pts.T[1][i]),float(pts.T[2][i])]))
 
-        print(f'len of future traj: {len(future_trajectory)}')
         self.vizer.viewer.scene.add_spline_catmull_rom(
                                             "Output traj",
                                             points=future_trajectory,
