@@ -26,7 +26,8 @@ class PatternGenerator:
         if pattern_type == 'zigzag':
             return self.zigzag(step=step, stride=stride, orientation=orientation)
         elif pattern_type == 'spiral':
-            return self.spiral_from_center(stride=stride)
+            # return self.spiral_from_center(stride=stride)
+            raise ValueError("This option is not working for now")
         elif pattern_type == 'zigzag_curve':
             return self.zig_zag_curve(step=step, stride=stride, orientation=orientation)
         else:
@@ -206,6 +207,7 @@ class PatternGenerator:
 
         return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
+    # this one is not working as intended
     def spiral_from_center(self, stride=1.0):
         """
         Génère une spirale polygonale (carrée) qui part du centre et s'étend vers l'extérieur,
@@ -486,7 +488,7 @@ def RPY2Mat(roll,pitch,yaw):
                 [np.sin(yaw), np.cos(yaw), 0],
                 [0, 0, 1]
             ])
-    Ry = np.array([v_spread
+    Ry = np.array([
                 [np.cos(pitch), 0, np.sin(pitch)],
                 [0, 1, 0],
                 [-np.sin(pitch), 0, np.cos(pitch)]
@@ -522,10 +524,7 @@ def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
 
 if __name__=="__main__":
     patternGen = PatternGenerator([1,1,0], (0.5,0,0.2))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.5)
-    positions :list = []
-    for i in range (len(x)):
-        positions.append(np.array([x[i], y[i], z[i]]))
+    positions = patternGen.generate_pattern('zigzag_curve',stride=0.5)
 
     # positions = [np.array([0.5, 0.0, 0.2]),
     #             np.array([ 0.5, 0.0, 0.5]),
