@@ -478,6 +478,7 @@ class SplineGenerator:
 
 
 class TestTrajs:
+    # "struct" class used to regroup test trajectory generators
     def line(self, start_point:list, end_point:list):
         # add check to verify if point is valid
         if len(start_point)<3 :
@@ -500,7 +501,7 @@ class TestTrajs:
 
         axis_start_point = start_point[indexDict[sine_axis]]
         axis_stop_point = axis_start_point + length
-        number_of_points = int((axis_stop_point - axis_start_point) / dist_between_points)
+        number_of_points = abs(int((axis_stop_point - axis_start_point) / dist_between_points))
         i_table = np.linspace(start=axis_start_point, stop= axis_stop_point,num = number_of_points)
         i_table = np.linspace(start=0,stop=length, num=number_of_points)
 
@@ -511,7 +512,6 @@ class TestTrajs:
             current_point[indexDict[ampl_axis]]+=i
 
             trajectory.append(current_point)
-
         return trajectory
 
         # amplitude * sin(period*(x-length_offset)) + height_offset
