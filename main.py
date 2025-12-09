@@ -1,17 +1,55 @@
 from mpc import MPC
 from mpcVisualization import Visualization
 from mpcParameters import Params, args
-from mpcTrajectoryUtils import PatternGenerator
+from mpcTrajectoryUtils import PatternGenerator, TestTrajs
 import numpy as np
 from copy import deepcopy
+import pinocchio as pin
 
 if __name__=="__main__":
     parameters = Params()
-    patternGen = PatternGenerator([0.5,0.5,0], (0.4,0,0))
-    x,y,z = patternGen.generate_pattern('zigzag_curve',stride=0.05)
-    positions :list = []
-    for i in range (len(x)): # TODO change return of generate pattern to avoid this
-        positions.append(np.array([x[i], y[i], z[i]]))
+
+    # Waypoints ================================================================
+    patternGen = PatternGenerator([0.5,0.5,0], (0.6,0,0.3))
+    positions = patternGen.generate_pattern('zigzag_curve',stride=0.05)
+
+    test_trajs = TestTrajs()
+    start = [0, -0.5, 0.2]
+    end = [1, 2, 1]
+    # positions = test_trajs.line(start, end)
+    positions = test_trajs.sine(start_point=start,length=1.5,period=0.01,amplitude=0.2, dist_between_points=0.01, sine_axis="Z", ampl_axis="X")
+
+    # positions =[ # line²
+    #             np.array([ 0.3, 0, 0.2]),
+    #             np.array([ 0.2, 0, 0.2]),
+    #             np.array([ 0.1, 0, 0.2]),
+    #             np.array([ 0.0, 0, 0.2]),
+    #             np.array([-0.1, 0, 0.2]),
+    #             np.array([-0.2, 0, 0.2]),
+    #             np.array([-0.3, 0, 0.2])
+    #             ]
+
+    # positions =[ # ligne a coté de l'épaule
+    #             np.array([-0.15, -0.3, 0.2]),
+    #             np.array([-0.15, -0.2, 0.2]),
+    #             np.array([-0.15, -0.1, 0.2]),
+    #             np.array([-0.15, 0.0, 0.2]),
+    #             np.array([-0.15, 0.1, 0.2]),
+    #             np.array([-0.15, 0.2, 0.2]),
+    #             np.array([-0.15, 0.3, 0.2])
+    #             ]
+
+    # positions =[ #vertical line
+    #             np.array([ 0.0 , 0, 0.8]),
+    #             np.array([ 0.0 , 0, 0.7]),
+    #             np.array([ 0.0 , 0, 0.6]),
+    #             np.array([ 0.0 , 0, 0.5]),
+    #             np.array([ 0.0 , 0, 0.4]),
+    #             np.array([ 0.0 , 0, 0.3]),
+    #             np.array([ 0.0 , 0, 0.2])
+    #             ]
+
+    # MPC ======================================================================
 
     results_xs = []
     results_us = []
@@ -25,9 +63,8 @@ if __name__=="__main__":
     if not args.no_viz3D:
         viz = Visualization(mpc)
 
-    launch_check = input("Enter to launch") #! Messes with the plot?
-    while not viz.client_connected:
-        viz.update_plot(mpc.q0, 0) # update a first time
+    launch_check = input("Enter to launch") #! fixed with viser PR #614
+
     for t in range (mpc.parameters.n_total_steps+1):
         print(f't:{t}')
         if t == 0:
@@ -44,6 +81,9 @@ if __name__=="__main__":
         if not args.no_viz3D:
             viz.update_plot(robot_state[:mpc.n_q], t)
             viz.display_step(xs_no_ee)
+
+
+        # print(mpc.results.gains.tolist()) # test to get gains
 
         # copy the results for plotting
         current_xs = deepcopy(mpc.results.xs.tolist()[0])
@@ -77,12 +117,3 @@ if __name__=="__main__":
     #             np.array([0.35, -0.35,  0.5]),
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
-
-    # positions =[ # line
-    #             np.array([0.2, 0.1, 0.2]),
-    #             np.array([0.2, 0.2, 0.2]),
-    #             np.array([0.2, 0.3, 0.2]),
-    #             np.array([0.2, 0.4, 0.2]),
-    #             np.array([0.2, 0.5, 0.2]),
-    #             np.array([0.2, 0.6, 0.2])
-    #             ]
