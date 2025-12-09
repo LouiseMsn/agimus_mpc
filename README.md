@@ -3,7 +3,7 @@
 ```bash
 pixi run main
 
-pixi run main -- <my_args>
+pixi run main <my_args>
 ```
 Options:
 - **display**: (default False)
