@@ -1,13 +1,15 @@
 import numpy as np
 import aligator
 import tap
+from pathlib import Path
+import yaml
 
 class ArgsBase(tap.Tap):
     display: bool = False  # Displays the trajectory using meshcat
 
 class Args(ArgsBase):
     debug : bool = False # Adds prints
-    no_viz3D : bool = False # Displays a 3D visualization
+    no_3Dviz : bool = False # Displays a 3D visualization
     perturbate : bool = False # Adds a perturbation to the state input of the MPC
     no_joints_lim: bool = False
     no_torque_lim: bool = False
@@ -20,52 +22,70 @@ class Params():
     """
     Class regrouping the parameters used in the MPC
     """
-    def __init__(self)->None:
-        # Robot
-        self.robot_name : str = "panda"
-        self.world_frame_name : str = "universe"
-        self.start_pose : np.ndarray = np.array([-np.pi/2, -1, 0, -2.5, 0.0, 2, 0.0, 0.0, 0.0])
-        self.tool_frame_name : str = "panda_hand_tcp"
+    def __init__(self, yaml_config_path)->None:
+        with yaml_config_path.open('r') as config_file:
+            config = yaml.safe_load(config_file)
+            print(config)
 
-        # MPC
-        self.dt : float = 0.01 # time is in seconds
-        self.total_time : int|float = 20
-        self.mpc_steps : int = 200
-        self.mpc_max_iter : int = 1 #2
-        self.solver_tolerance = 1e-7
-        self.solver_rollout_type = aligator.ROLLOUT_LINEAR
-        self.solver_sa_strategy = aligator.SA_LINESEARCH_NONMONOTONE
-        self.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
-        self.solver_num_threads = 10
-        self.mu_init = 1e-7 #0.99 # penalite sur les contraintes
-        if args.debug:
-            self.verbose = aligator.VerboseLevel.VERBOSE
-        else:
-            self.verbose = aligator.VerboseLevel.QUIET
+            # Robot
+            robot = config["robot"]
+            self.robot_name = robot['name']
+            self.world_frame_name = robot['world_frame_name']
+            self.start_pose = eval(robot['start_pose'])
+            self.tool_frame_name = robot['tool_frame_name']
 
-        # Weights:
-        self.stage_joint_reg_cost = 1e-2 #1e-4
-        self.stage_vel_reg_cost = 1e-2
-        self.command_reg_cost = 1e-4
-        self.term_state_reg_cost = 1e-30
-        self.waypoint_x_weight = 1e-4
-        self.waypoint_frame_pos_weight = 100
-        self.waypoint_frame_vel_weight = 1
-        self.orientation_weight = 1
-        self.collision_weight = 0.1 # very sensitive, max around ~ 0.1
-        self.vel_spread = 0.1
-        self.vel_start = 0.1
+            # MPC
+            mpc = config['MPC']
+            self.dt = mpc['dt'] # time is in seconds
+            self.total_time = mpc['total_time']
+            self.nb_steps_horizon = mpc['nb_steps_horizon']
+            self.mpc_max_iter = mpc['max_nb_iter']
+            solver = mpc['solver']
+            self.solver_tolerance = eval(solver['tolerance'])
+            self.solver_rollout_type = eval(solver['rollout_type'])
+            self.solver_sa_strategy = eval(solver['sa_strategy'])
+            self.solver_linear_solver_choice = eval(solver['linear_solver_choice'])
+            self.solver_num_threads = solver['num_threads']
+            self.mu_init = eval(solver['mu_init'])  # penality on constraints
+            if args.debug:
+                self.verbose = aligator.VerboseLevel.VERBOSE
+            else:
+                self.verbose = aligator.VerboseLevel.QUIET
 
-        # Trajectory
-        self.tool_orientation = np.array([np.pi, 0., 0.])
+            # Weights:
+            weights = mpc['weights']
+            reg_weights = weights['regulation']
+            self.stage_joint_reg_cost = eval(reg_weights['stage_joint'])
+            self.stage_vel_reg_cost = eval(reg_weights['stage_vel'])
+            self.command_reg_cost = eval(reg_weights['command'])
+            self.term_state_reg_cost = eval(reg_weights['term_state'])
+
+            waypt_weights = weights['waypoints']
+            self.waypoint_frame_pos_weight = waypt_weights['frame_pos']
+            self.waypoint_frame_vel_weight = waypt_weights['frame_vel']
+            self.orientation_weight = waypt_weights['orientation']
+
+            self.collision_weight = weights['collision'] # very sensitive, max around ~ 0.1
+
+            # Trajectory
+            trajectory = config['trajectory']
+            self.tool_orientation = trajectory['tool_orientation']
+            velocity = trajectory['velocity']
+            self.vel_spread = velocity['spread']
+            self.vel_start = velocity['start']
+
 
     @property
     def n_total_steps(self):
+        if self.total_time is None or self.dt is None:
+            raise ValueError("Value of total_time or dt parameter is incorrect")
         return int(self.total_time / self.dt)
 
     @property
     def mpc_horizon(self):
-        return self.dt * float(self.mpc_steps) # in seconds
+        if self.dt is None or self.nb_steps_horizon is None:
+            raise ValueError("Value of dt or nb_steps_horizon is incorrect")
+        return self.dt * float(self.nb_steps_horizon) # in seconds
 
     def __repr__(self)->str:
         """
@@ -80,14 +100,16 @@ class Params():
                     f'\tdt: {self.dt} (secs)\n'\
                     f'\tTotal time: {self.total_time} (secs)\n'\
                     f'\tTotal number of steps: {self.n_total_steps}\n'\
-                    f'\tHorizon: {self.mpc_steps} (steps)\n'\
+                    f'\tHorizon: {self.nb_steps_horizon} (steps)\n'\
                     f'\tHorizon: {self.mpc_horizon} (secs)\n'\
                     f'\tNumber max of iterations: {self.mpc_max_iter}\n'\
                     f'\tSolver:\n'\
+                        f'\t\tTolerance: {self.solver_tolerance}\n'\
                         f'\t\tRollout type: {self.solver_rollout_type}\n'\
                         f'\t\tSA Strategy: {self.solver_sa_strategy}\n'\
                         f'\t\tLinear solver choice: {self.solver_linear_solver_choice}\n'\
                         f'\t\tNumber of threads: {self.solver_num_threads}\n'\
+                        f'\t\tMu at initialization: {self.mu_init}\n'\
                 f'\nWeights parameters:\n'\
                 f'\tRegulations costs:\n'\
                     f'\t\tJoints: {self.stage_joint_reg_cost}\n'\
@@ -95,8 +117,13 @@ class Params():
                     f'\t\tCommand: {self.command_reg_cost}\n'\
                     f'\t\tTerminal state: {self.term_state_reg_cost}\n'\
                 f'\n\tWaypoints:\n'\
-                    f'\t\tState: {self.waypoint_x_weight}\n'\
                     f'\t\tFrame position: {self.waypoint_frame_pos_weight}\n'\
                     f'\t\tFrame velocity: {self.waypoint_frame_vel_weight}\n'\
                 f'\n\tOrientation: {self.orientation_weight}\n'\
                 f'\n\tCollision: {self.collision_weight}\n'
+
+
+if __name__=="__main__":
+    path = Path("config/mpc_config.yaml")
+    params_test = Params(path)
+    print(params_test)
