@@ -1,7 +1,7 @@
 from mpc import MPC
 from mpcVisualization import Visualization
 from mpcParameters import Params, args
-from mpcTrajectoryUtils import PatternGenerator
+from mpcTrajectoryUtils import PatternGenerator, TestTrajs
 import numpy as np
 from copy import deepcopy
 import pinocchio as pin
@@ -12,6 +12,12 @@ if __name__=="__main__":
     # Waypoints ================================================================
     patternGen = PatternGenerator([0.5,0.5,0], (0.6,0,0.3))
     positions = patternGen.generate_pattern('zigzag_curve',stride=0.05)
+
+    test_trajs = TestTrajs()
+    start = [0, -0.5, 0.2]
+    end = [1, 2, 1]
+    # positions = test_trajs.line(start, end)
+    positions = test_trajs.sine(start_point=start,length=1.5,period=0.01,amplitude=0.2, dist_between_points=0.01, sine_axis="Z", ampl_axis="X")
 
     # positions =[ # line²
     #             np.array([ 0.3, 0, 0.2]),

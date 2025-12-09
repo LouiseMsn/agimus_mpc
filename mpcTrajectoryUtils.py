@@ -4,6 +4,8 @@ from pinocchio import SE3
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from scipy.interpolate import interp1d, RBFInterpolator
+import math
+from copy import deepcopy
 
 
 class PatternGenerator:
@@ -474,6 +476,46 @@ class SplineGenerator:
         else:
             return self.spread_ori_traj(np.array([[t]]))[0]
 
+
+class TestTrajs:
+    def line(self, start_point:list, end_point:list):
+        # add check to verify if point is valid
+        if len(start_point)<3 :
+            raise ValueError("Wrongly defined start point")
+        elif len(end_point)<3:
+            raise ValueError("Wrongly defined end point")
+        else:
+            trajectory = np.array([start_point, end_point])
+        return trajectory
+
+    def sine(self, amplitude=1.0, period=1.0, sine_axis="z", ampl_axis="x", start_point=[1,1,1], length=1.0, dist_between_points = 0.1):
+
+        if sine_axis not in ["x", "X", "y", "Y", "z", "Z"]:
+            raise ValueError("Invalid sine_axis value")
+        elif ampl_axis not in ["x", "X", "y", "Y", "z", "Z"]:
+            raise ValueError("Invalid sine_axis value")
+
+        indexDict = {"x":0,"X":0, "y":1, "Y":1, "z":2,"Z":2} # to get the translation axis name -> array index
+        trajectory = []
+
+        axis_start_point = start_point[indexDict[sine_axis]]
+        axis_stop_point = axis_start_point + length
+        number_of_points = int((axis_stop_point - axis_start_point) / dist_between_points)
+        i_table = np.linspace(start=axis_start_point, stop= axis_stop_point,num = number_of_points)
+        i_table = np.linspace(start=0,stop=length, num=number_of_points)
+
+        for i in i_table:
+            sin_val = amplitude * math.sin((1/period) * i) # calculate the sin value for the current i
+            current_point = deepcopy(start_point) # copy the start point
+            current_point[indexDict[sine_axis]] += sin_val # add the sine value to the correct axis
+            current_point[indexDict[ampl_axis]]+=i
+
+            trajectory.append(current_point)
+
+        return trajectory
+
+        # amplitude * sin(period*(x-length_offset)) + height_offset
+
 def RPY2Mat(roll,pitch,yaw):
     """
     Converts a rotation in roll pitch yaw to a rotation matrix. # TODO Pin function?
@@ -523,8 +565,14 @@ def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
         )
 
 if __name__=="__main__":
-    patternGen = PatternGenerator([1,1,0], (0.5,0,0.2))
-    positions = patternGen.generate_pattern('zigzag_curve',stride=0.5)
+    # patternGen = PatternGenerator([1,1,0], (0.5,0,0.2))
+    # positions = patternGen.generate_pattern('zigzag_curve',stride=0.5)
+
+    test_trajs = TestTrajs()
+    start = [0.5, 0.5, 0.2]
+    end = [1, 2, 1]
+    # positions = test_trajs.line(start, end)
+    positions = test_trajs.sine(start_point=start,length=1.5,period=0.1,amplitude=0.2, dist_between_points=0.01)
 
     # positions = [np.array([0.5, 0.0, 0.2]),
     #             np.array([ 0.5, 0.0, 0.5]),
