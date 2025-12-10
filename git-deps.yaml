@@ -1,0 +1,21 @@
+repositories:
+  aligator:
+    type: git
+    url: git@github.com:Simple-Robotics/aligator.git
+    version:
+  eigenpy:
+    type: git
+    url: git@github.com:stack-of-tasks/eigenpy.git
+    version: devel
+  example-robot-data:
+    type: git
+    url: git@github.com:Gepetto/example-robot-data.git
+    version: devel
+  coal:
+    type: git
+    url: git@github.com:coal-library/coal.git
+    version: devel
+  pinocchio:
+    type: git
+    url: git@github.com:stack-of-tasks/pinocchio.git
+    version: devel
