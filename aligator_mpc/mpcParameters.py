@@ -25,7 +25,6 @@ class Params():
     def __init__(self, yaml_config_path)->None:
         with yaml_config_path.open('r') as config_file:
             config = yaml.safe_load(config_file)
-            print(config)
 
             # Robot
             robot = config["robot"]
