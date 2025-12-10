@@ -67,12 +67,18 @@ if __name__=="__main__":
     launch_check = input("Enter to launch") #! fixed with viser PR #614
 
     for t in range (mpc.parameters.n_total_steps+1):
+        #* Get robot state (Sensor msg)
+
         # print(f't:{t}')
         if t == 0:
             robot_state = mpc.x0
         else:
             robot_state = mpc.results.xs.tolist()[0]
+
+        #* iterate the solver
         solver_calc_time = mpc.iterate(robot_state)
+
+        #* send the return to the linear feedback controller
 
         # removing the actuation on the two grips of the end effector
         xs_no_ee = mpc.results.xs.tolist()
