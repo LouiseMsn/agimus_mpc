@@ -2,7 +2,7 @@ repositories:
   aligator:
     type: git
     url: git@github.com:Simple-Robotics/aligator.git
-    version:
+    version: main
   eigenpy:
     type: git
     url: git@github.com:stack-of-tasks/eigenpy.git
