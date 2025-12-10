@@ -7,7 +7,8 @@ from copy import deepcopy
 from pathlib import Path
 
 if __name__=="__main__":
-    config_path = Path("config/mpc_config.yaml")
+    current_path = Path(__file__).parent.resolve()
+    config_path = current_path.joinpath(Path("config/mpc_config.yaml"))
     parameters = Params(config_path)
 
     # Waypoints ================================================================
