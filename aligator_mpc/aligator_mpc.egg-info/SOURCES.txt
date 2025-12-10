@@ -1,0 +1,5 @@
+pyproject.toml
+aligator_mpc.egg-info/PKG-INFO
+aligator_mpc.egg-info/SOURCES.txt
+aligator_mpc.egg-info/dependency_links.txt
+aligator_mpc.egg-info/top_level.txt

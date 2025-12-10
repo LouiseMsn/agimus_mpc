@@ -11,7 +11,12 @@ example-robot-data = "*"
 example-robot-data-loaders = "*"
 pycollada = "*"
 ipython = "*"
-viser = ">=1.0"
+
+
+[pypi-dependencies]
+viser = {path = "./viser", editable = true }
+aligator_mpc = {path = "./aligator_mpc", editable = true}
+
 
 [tasks]
-main = "ipython main.py --"
+main = "ipython aligator_mpc/main.py --"

@@ -1,5 +1,5 @@
-from mpcTrajectoryUtils import SplineGenerator
-from mpcParameters import Params, args
+from aligator_mpc.mpcTrajectoryUtils import SplineGenerator
+# from aligator_mpc import Params, args
 
 import aligator
 from aligator import constraints, manifolds, dynamics
@@ -9,7 +9,7 @@ import numpy as np
 from typing import List
 import time
 import os
-from mpcUtils import StagesDefinition
+from aligator_mpc.mpcUtils import StagesDefinition
 
 
 class MPC():
