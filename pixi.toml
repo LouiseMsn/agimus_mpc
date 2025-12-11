@@ -1,22 +1,30 @@
 [workspace]
 authors = ["LouiseMsn <louise.manson@inria.fr>"]
-channels = ["conda-forge"]
+channels = ["conda-forge", "robostack-jazzy"]
 name = "agimus_mpc"
 platforms = ["linux-64"]
 version = "0.1.0"
 
 [dependencies]
+ipython = "*"
+
+[feature.default.dependencies]
 aligator = ">=0.17"
 example-robot-data = "*"
 example-robot-data-loaders = "*"
 pycollada = "*"
-ipython = "*"
-
 
 [pypi-dependencies]
-viser = {path = "./viser", editable = true }
-aligator_mpc = {path = "./aligator_mpc", editable = true}
+# viser = {path = "./../viser", editable = true }
+# aligator_mpc = {path = ".", editable = true}
 
+[feature.ros2.dependencies]
+ros-jazzy-desktop-full = "*"
+ccache = "*"
 
 [tasks]
 main = "ipython aligator_mpc/main.py --"
+
+[environments]
+default = {features = ["default"]}
+ros2 = { features = ["ros2"]}
