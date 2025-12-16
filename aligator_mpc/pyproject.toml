@@ -1,6 +1,6 @@
 [project]
 name = "aligator_mpc"
-version = "0.0.1"
+version = "1.0"
 authors = [
   { name="Louise Manson", email="louise.manson@inria.fr" },
 ]

@@ -1,5 +1,5 @@
 from aligator_mpc.mpcTrajectoryUtils import SplineGenerator
-# from aligator_mpc import Params, args
+from aligator_mpc.mpcParameters import args
 
 import aligator
 from aligator import constraints, manifolds, dynamics
@@ -8,7 +8,6 @@ import pinocchio as pin
 import numpy as np
 from typing import List
 import time
-import os
 from aligator_mpc.mpcUtils import StagesDefinition
 
 
@@ -90,7 +89,6 @@ class MPC():
             self.solver.setup(self.problem)
 
         else:
-
             # cycle the data
             us   = self.cycleData(self.results.us.tolist())
             xs   = self.cycleData(self.results.xs.tolist())

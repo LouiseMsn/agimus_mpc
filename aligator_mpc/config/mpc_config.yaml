@@ -1,8 +1,8 @@
 robot:
-  name : "panda"
+  name :  "ur5" #"panda"
   world_frame_name : "universe"
-  start_pose : "np.array([-np.pi/2, -1, 0, -2.5, 0.0, 2, 0.0, 0.0, 0.0])"
-  tool_frame_name : "panda_hand_tcp"
+  start_pose : "np.array([-np.pi/2, -1, 0, -2.5, 0.0, 2])" #"np.array([-np.pi/2, -1, 0, -2.5, 0.0, 2, 0.0, 0.0, 0.0])"
+  tool_frame_name : "wrist_3_joint" #"panda_hand_tcp"
 MPC:
   dt :  0.01 # time is in seconds
   total_time : 30

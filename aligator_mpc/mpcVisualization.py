@@ -5,7 +5,7 @@ from pinocchio.visualize import ViserVisualizer
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
-from aligator_mpc import MPC
+from aligator_mpc.mpc import MPC
 
 from typing import List
 
