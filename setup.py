@@ -8,5 +8,5 @@ setup(
                         'typed-argument-parser',
                         'viser'
                         ],
-    py_modules=['mpc', 'mpcParameters', 'mpcTrajectoryUtils', 'mpcVisualization', '']
+    py_modules=['mpc', 'mpcParameters', 'mpcTrajectoryUtils', '']
 ), 
