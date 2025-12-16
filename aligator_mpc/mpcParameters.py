@@ -13,7 +13,7 @@ class Args():
     no_orientation_cost : bool = False
     no_waypoints : bool = False
 
-args = Args().parse_args()
+args = Args()
 
 class Params():
     """
