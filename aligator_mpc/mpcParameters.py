@@ -1,13 +1,10 @@
 import numpy as np
 import aligator
-import tap
 from pathlib import Path
 import yaml
 
-class ArgsBase(tap.Tap):
-    display: bool = False  # Displays the trajectory using meshcat
 
-class Args(ArgsBase):
+class Args():
     debug : bool = False # Adds prints
     no_3Dviz : bool = False # Displays a 3D visualization
     perturbate : bool = False # Adds a perturbation to the state input of the MPC
