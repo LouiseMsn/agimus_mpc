@@ -1,5 +1,5 @@
 from mpc import MPC
-from mpcVisualization import Visualization
+# from mpcVisualization import Visualization
 from mpcParameters import Params, args
 from mpcTrajectoryUtils import PatternGenerator, TestTrajs
 import numpy as np
@@ -62,8 +62,8 @@ if __name__=="__main__":
     mpc = MPC(positions, parameters)
     robot_state = mpc.x0
 
-    if not args.no_3Dviz:
-        viz = Visualization(mpc)
+    # if not args.no_3Dviz:
+    #     viz = Visualization(mpc)
 
     launch_check = input("Enter to launch") #! fixed with viser PR #614
 
@@ -86,9 +86,9 @@ if __name__=="__main__":
         xs_no_ee[0][mpc.n_q - 1] = 0
         xs_no_ee[0][mpc.n_q - 2] = 0
 
-        if not args.no_3Dviz:
-            viz.update_plot(robot_state[:mpc.n_q], t)
-            viz.display_step(xs_no_ee)
+        # if not args.no_3Dviz:
+        #     viz.update_plot(robot_state[:mpc.n_q], t)
+        #     viz.display_step(xs_no_ee)
 
 
         # print(mpc.results.gains.tolist()) # test to get gains
@@ -105,7 +105,7 @@ if __name__=="__main__":
         dual_infeas.append(last_prim_infeas)
         mpc_timer.append(solver_calc_time)
 
-    viz.plotResults(results_xs, results_us, prim_infeas, dual_infeas, mpc_timer)
+    # viz.plotResults(results_xs, results_us, prim_infeas, dual_infeas, mpc_timer)
 
 
     # positions = [np.array([0.5, 0.0, 0.2]), # merry-go-round
