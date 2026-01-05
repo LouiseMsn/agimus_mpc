@@ -11,6 +11,13 @@ import time
 from aligator_mpc.mpcUtils import StagesDefinition
 
 
+# !! TEMP
+
+from rclpy.impl import rcutils_logger
+
+
+
+
 class MPC():
     def __init__(self, waypoints, parameters):
         print(args)
@@ -32,9 +39,8 @@ class MPC():
         self.nu = self.n_v
         self.x0 = self.space.neutral() # initial robot state
         self.q0 = self.x0[:self.n_q] # initial joints state
-        q0 = self.parameters.start_pose
-        self.x0[:self.n_q] = q0
-        pin.forwardKinematics(self.robot.model, self.robot.data, q0)
+        
+        pin.forwardKinematics(self.robot.model, self.robot.data, self.q0)
         pin.updateFramePlacement(self.robot.model, self.robot.data, self.tool_id) # update model placemement
 
         self.discrete_dynamics = self.calcDiscreteDynamics()
@@ -66,6 +72,14 @@ class MPC():
         solver.registerCallback("his", callback)
 
         return solver, callback
+    
+    def setStartPose(self, start_pose):
+        if len(start_pose)!=self.n_q:
+            raise AssertionError(f"Pose has the wrong number of elements: is {len(start_pose)} but should be {self.n_q}")
+        self.x0[:self.n_q] = start_pose
+        pin.forwardKinematics(self.robot.model, self.robot.data, start_pose)
+        pin.updateFramePlacement(self.robot.model, self.robot.data, self.tool_id) # update model placemement
+
 
     def iterate(self, current_xs):
         """
@@ -93,8 +107,14 @@ class MPC():
             us   = self.cycleData(self.results.us.tolist())
             xs   = self.cycleData(self.results.xs.tolist())
 
-            end_of_horizon_index = self.solver_stage_number + self.parameters.nb_steps_horizon-1 # -1 because the first stage is 0
+            # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'len xs = {len(xs)}')
+            # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'len us = {len(us)}')
+            # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'xs = {xs}')
+            # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'us = {us}')
 
+            end_of_horizon_index = self.solver_stage_number + self.parameters.nb_steps_horizon-1 # -1 because the first stage is 0
+            # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f't = {self.solver_stage_number}')
+            # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'end of horizon index = {end_of_horizon_index}')
             # cycle the stages
             stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
             self.problem.replaceStageCircular(stage_model)
@@ -154,6 +174,23 @@ class MPC():
         list = list[1:]
         list.append(list[-1])
         return list
+
+    def get_endpoint_traj(self, xs: List[np.ndarray]):
+        """
+        Gets the trajectory of the effector for a state list
+        """
+        pts = []
+        for i in range(len(xs)):
+            pts.append(self.get_endpoint(xs[i][: self.n_q]))
+        return np.array(pts)
+
+    def get_endpoint(self, q: np.ndarray):
+        """
+        Gets the effector pose for a joint configuration q
+        """
+        pin.framesForwardKinematics(self.robot.model, self.robot.data, q)
+        return self.robot.data.oMf[self.tool_id].translation.copy()
+
 
 class StageFactory():
     def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params):
