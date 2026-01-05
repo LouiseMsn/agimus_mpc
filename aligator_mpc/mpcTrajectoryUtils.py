@@ -476,7 +476,6 @@ class SplineGenerator:
         else:
             return self.spread_ori_traj(np.array([[t]]))[0]
 
-
 class TestTrajs:
     # "struct" class used to regroup test trajectory generators
     def line(self, start_point:list, end_point:list):
@@ -542,7 +541,6 @@ def RPY2Mat(roll,pitch,yaw):
             ])
     R = Rz @ Ry @ Rx
     return R
-
 
 def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
     """
