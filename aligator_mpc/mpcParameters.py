@@ -35,14 +35,17 @@ class Params():
             self.dt = mpc['dt'] # time is in seconds
             self.total_time = mpc['total_time']
             self.nb_steps_horizon = mpc['nb_steps_horizon']
-            self.mpc_max_iter = mpc['max_nb_iter']
+            self.mpc_max_iters = mpc['max_nb_iters']
+            self.mpc_max_iters_1st_iter = mpc['max_nb_iters_1st_iter']
             solver = mpc['solver']
             self.solver_tolerance = eval(solver['tolerance'])
             self.solver_rollout_type = eval(solver['rollout_type'])
             self.solver_sa_strategy = eval(solver['sa_strategy'])
             self.solver_linear_solver_choice = eval(solver['linear_solver_choice'])
             self.solver_num_threads = solver['num_threads']
-            self.mu_init = eval(solver['mu_init'])  # penality on constraints
+            self.solver_mu_init = eval(solver['mu_init']) # penality on constraints
+            self.solver_mu_init_1st_iter = eval(solver['mu_init_1st_iter']) 
+            
             if args.debug:
                 self.verbose = aligator.VerboseLevel.VERBOSE
             else:
@@ -98,14 +101,17 @@ class Params():
                     f'\tTotal number of steps: {self.n_total_steps}\n'\
                     f'\tHorizon: {self.nb_steps_horizon} (steps)\n'\
                     f'\tHorizon: {self.mpc_horizon} (secs)\n'\
-                    f'\tNumber max of iterations: {self.mpc_max_iter}\n'\
+                    f'\tNumber max of iterations at 1st iteration: {self.mpc_max_iters_1st_iter}\n'\
+                    f'\tNumber max of iterations: {self.mpc_max_iters}\n'\
                     f'\tSolver:\n'\
+                        f'\t\tVerbose: {self.verbose}\n'\
                         f'\t\tTolerance: {self.solver_tolerance}\n'\
                         f'\t\tRollout type: {self.solver_rollout_type}\n'\
                         f'\t\tSA Strategy: {self.solver_sa_strategy}\n'\
                         f'\t\tLinear solver choice: {self.solver_linear_solver_choice}\n'\
                         f'\t\tNumber of threads: {self.solver_num_threads}\n'\
-                        f'\t\tMu at initialization: {self.mu_init}\n'\
+                        f'\t\tMu initialization at 1rst iteration: {self.solver_mu_init_1st_iter}\n'\
+                        f'\t\tMu at initialization: {self.solver_mu_init}\n'\
                 f'\nWeights parameters:\n'\
                 f'\tRegulations costs:\n'\
                     f'\t\tJoints: {self.stage_joint_reg_cost}\n'\

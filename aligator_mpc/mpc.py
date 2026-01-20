@@ -1,4 +1,4 @@
-from aligator_mpc.mpcTrajectoryUtils import SplineGenerator
+from aligator_mpc.mpcTrajectoryUtils import Interpolator
 from aligator_mpc.mpcParameters import args
 
 import aligator
@@ -10,10 +10,11 @@ from typing import List
 import time
 import math
 from aligator_mpc.mpcUtils import StagesDefinition
+from pinocchio.visualize import MeshcatVisualizer
 
 
 # !! TEMP
-
+from line_profiler import profile
 from rclpy.impl import rcutils_logger
 
 class MPC():
@@ -24,6 +25,8 @@ class MPC():
         print(self.parameters)
         # Initialize robot
         self.robot = ex_robot_data.load(self.parameters.robot_name)
+        self.robot.model = pin.buildReducedModel(self.robot.model, [8,9], self.parameters.start_pose )
+        self.robot.data = self.robot.model.createData()
 
         self.space = self.space = manifolds.MultibodyPhaseSpace(self.robot.model)
         self.tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
@@ -36,9 +39,10 @@ class MPC():
         self.nu = self.n_v
         self.x0 = self.space.neutral() # initial robot state
         self.q0 = self.x0[:self.n_q] # initial joints state
+
         
         pin.forwardKinematics(self.robot.model, self.robot.data, self.q0)
-        pin.updateFramePlacement(self.robot.model, self.robot.data, self.tool_id) # update model placemement
+        pin.updateFramePlacements(self.robot.model, self.robot.data) # update model placemement
 
         self.discrete_dynamics = self.calcDiscreteDynamics()
         self.stage_factory = None # to be instanciated with start Pose
@@ -48,14 +52,13 @@ class MPC():
         self.results = None
         self.problem = None
         self.solver_stage_number = 0
-        pass
 
     def instantiateSolver(self):
         """
         Creates the `SolverProxDDP solver` object and assigns its rollout type, sa strategy, linear solver choice and if using parallel aligator the number of threads.
         Sets the `self.callback` and `self.solver` object.
         """
-        solver = aligator.SolverProxDDP(self.parameters.solver_tolerance, self.parameters.mu_init, max_iters=self.parameters.mpc_max_iter, verbose=self.parameters.verbose)
+        solver = aligator.SolverProxDDP(self.parameters.solver_tolerance, self.parameters.solver_mu_init, max_iters=self.parameters.mpc_max_iters, verbose=aligator.VerboseLevel.QUIET)
         solver.rollout_type = self.parameters.solver_rollout_type
         solver.sa_strategy = self.parameters.solver_sa_strategy
         solver.linear_solver_choice = self.parameters.solver_linear_solver_choice
@@ -71,8 +74,7 @@ class MPC():
             raise AssertionError(f"Pose has the wrong number of elements: is {len(start_pose)} but should be {self.n_q}")
         self.x0[:self.n_q] = start_pose
         pin.forwardKinematics(self.robot.model, self.robot.data, start_pose)
-        pin.updateFramePlacements(self.robot.model, self.robot.data) #, self.tool_id) # update model placemement
-
+        pin.updateFramePlacements(self.robot.model, self.robot.data) # update model placemement
 
     def initStages(self):
         """
@@ -84,7 +86,7 @@ class MPC():
         self.u_min = self.stage_factory.u_min
         self.u_max = self.stage_factory.u_max
 
-    def iterate(self, current_xs):
+    def iterate(self, current_xs, current_us):
         """
         Runs the solver over one iteration
         Args:
@@ -107,10 +109,14 @@ class MPC():
             stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.nb_steps_horizon)
             self.problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
             self.solver.setup(self.problem)
+            self.solver.max_iters = self.parameters.mpc_max_iters_1st_iter
+            self.solver.mu_init = self.parameters.solver_mu_init_1st_iter
             
         else:
+            self.solver.max_iters = self.parameters.mpc_max_iters
+            self.solver.mu_init = self.parameters.solver_mu_init
             # cycle the data
-            us   = self.cycleData(self.results.us.tolist(), None, None)
+            us   = self.cycleData(self.results.us.tolist(), current_us, "xs")
             xs   = self.cycleData(self.results.xs.tolist(), current_xs,"xs")
 
             self.solver_stage_number = self.solver_stage_number 
@@ -128,8 +134,6 @@ class MPC():
 
             # self.solver.setup(self.problem)
 
-            if args.perturbate:
-                xs[0] = np.add(xs[0], np.random.rand(18)*0.01) # perturbation on the state (max without exploding is ~0.01)
 
         self.results, solver_calc_time = self.run_solver(self.problem, us=us, xs=xs)
 
@@ -139,7 +143,7 @@ class MPC():
 
     def run_solver(self, problem, *, us, xs, lams=None, vs=None):
         """
-        Runs the solver over 'max_iters' iterations
+        Runs the solver
         """
         start = time.time()
         self.solver.run(problem, xs, us) # remove warmstart
@@ -221,33 +225,22 @@ class StageFactory():
 
         self.waypoints = waypoints
 
-        self.spline = self.getSplineTrajectory()
+        self.interpolator = self.getInterpolator()
 
-        if not args.no_waypoints:
-            self._addWaypointCosts()
-
-        if not args.no_orientation_cost:
-            self._addOrientationCosts()
-
-        # Add base costs & constraints present in all problems:
-        if not args.no_joints_lim:
-            self._addJointsLimitsConstraints()
-        if not args.no_torque_lim:
-            self._addTorqueLimitsConstraints()
+        self._addWaypointCosts()
+        self._addOrientationCosts()
+        self._addJointsLimitsConstraints()
+        self._addTorqueLimitsConstraints()
         self._addRegulationCosts()
         # self._addAutoCollisionsConstraints()
         self.buildStageModelList()
 
-    def getSplineTrajectory(self): # TODO is correct to have this here?
-        """
-        Returns the `SplineGenerator` object used to get interpolated waypoints positions
-        """
+    def getInterpolator(self):
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
-        start_pos = self.robot.data.oMf[tool_id].translation.copy()
-        start_ori = self.robot.data.oMf[tool_id].rotation.copy()
-        start_ori_rpy = pin.rpy.matrixToRpy(start_ori)
-
-        return SplineGenerator(start_pos, start_ori_rpy, self.waypoints, v_spread=self.parameters.vel_spread, v_start=self.parameters.vel_start)
+        start_pos = self.robot.data.oMf[tool_id]        
+        self.waypoints = [start_pos] + self.waypoints
+        rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start {pin.rpy.matrixToRpy(start_pos.rotation)} { start_pos.translation}')
+        return Interpolator(self.waypoints, self.parameters.vel_spread)
 
     def getStageModel(self, stage_number):
         """Returns the stage model for the _stage_number_ th stage
@@ -259,6 +252,7 @@ class StageFactory():
             raise ValueError("The stage model list is not built, run buildStageModelList() before running getStageModel()")
         else:
             if stage_number >= self.parameters.n_total_steps :
+                # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info('fin de trajectoire')
                 return self.stage_model_list[-1]
             else:
                 return self.stage_model_list[stage_number]
@@ -378,7 +372,7 @@ class StageFactory():
         tool_id = self.robot.model.getFrameId(self.parameters.tool_frame_name)
         waypoint_costs = []
         for t in range (self.parameters.n_total_steps):
-            target_pos = self.spline.get_interpolated_pose(t*self.parameters.dt)
+            target_pos = self.interpolator(t*self.parameters.dt).translation
 
             frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
             v_ref = pin.Motion()
@@ -391,15 +385,14 @@ class StageFactory():
             waypoint_costs.append(cost)
         self.stages_definition.stage_dep_costs.append(waypoint_costs)
 
-
     def _addOrientationCosts(self):
         """
         For each stage, adds a cost to align the end effector to the tangent of the trajectory
         """
         orientation_costs = []
         for t in range (self.parameters.n_total_steps):
-            rpy = self.spline.get_interpolated_ori(t*self.parameters.dt)
-            R = pin.rpy.rpyToMatrix(rpy)
+            R = self.interpolator(t*self.parameters.dt).rotation
+            # R = pin.rpy.rpyToMatrix(rpy)
             target_orientation = pin.Quaternion(R)
 
             target_placement = pin.SE3(target_orientation, np.zeros(3)) # only take orientation
@@ -455,28 +448,28 @@ class StageFactory():
     def getStagesList(self): #! remove?
         return self.stages
 
-    def getFullTrajectory(self): # TODO : move to pattern generator?
-        """
-        Returns the full trajectory formatted as a np.array([np.array([x0,x1,..]), np.array([y0,y1,..]), np.array([z0,z1,..])])
-        """
-        target = self.spline.get_interpolated_pose(0)
-        traj_x = np.array([float(target[0])])
-        traj_y = np.array([float(target[1])])
-        traj_z = np.array([float(target[2])])
-        for i in range(self.n_steps):
-            target = self.spline.get_interpolated_pose(i*self.parameters.dt)
-            traj_x = np.append(traj_x, float(target[0]))
-            traj_y = np.append(traj_y, float(target[1]))
-            traj_z = np.append(traj_z, float(target[2]))
-        traj = np.array([traj_x, traj_y, traj_z])
-        return traj
+    # def getFullTrajectory(self): # TODO : move to pattern generator?
+    #     """
+    #     Returns the full trajectory formatted as a np.array([np.array([x0,x1,..]), np.array([y0,y1,..]), np.array([z0,z1,..])])
+    #     """
+    #     target = self.spline.get_interpolated_pose(0)
+    #     traj_x = np.array([float(target[0])])
+    #     traj_y = np.array([float(target[1])])
+    #     traj_z = np.array([float(target[2])])
+    #     for i in range(self.n_steps):
+    #         target = self.spline.get_interpolated_pose(i*self.parameters.dt)
+    #         traj_x = np.append(traj_x, float(target[0]))
+    #         traj_y = np.append(traj_y, float(target[1]))
+    #         traj_z = np.append(traj_z, float(target[2]))
+    #     traj = np.array([traj_x, traj_y, traj_z])
+    #     return traj
 
     def getFullTrajectory_pt_by_pt(self): # TODO : move to pattern generator?
         """
         Return the full trajectory formatted as np.array([x0,y0,z0], [x1,y1,z1], ...)
         """
         traj = []
-        for i in range(self.n_steps):
-            target = self.spline.get_interpolated_pose(i*self.parameters.dt)
-            traj.append(target)
+        for i in range(self.parameters.n_total_steps):
+            target = self.interpolator(i*self.parameters.dt)
+            traj.append(target.translation)
         return traj

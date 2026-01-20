@@ -1,4 +1,5 @@
 import pinocchio as pin
+from pinocchio.rpy import rpyToMatrix, matrixToRpy
 import numpy as np
 from pinocchio import SE3
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ class PatternGenerator:
             # return self.spiral_from_center(stride=stride)
             raise ValueError("This option is not working for now")
         elif pattern_type == 'zigzag_curve':
-            return self.zig_zag_curve(step=step, stride=stride, orientation=orientation)
+            return self.zig_zag_curve_SE3(step=step, stride=stride, orientation=orientation)
         else:
             raise ValueError("Unknown pattern type")
 
@@ -89,7 +90,12 @@ class PatternGenerator:
                 z_tmp = z[-1]
         return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
-    def zig_zag_curve(self, step=10, stride=0.2, orientation='vertical'):
+    def zig_zag_curve_SE3(self, step=10, stride=0.2, orientation='vertical'):
+        positions = self.zig_zag_curve_pos(step, stride, orientation)
+        points = add_orientation(positions)
+        return points
+
+    def zig_zag_curve_pos(self, step=10, stride=0.2, orientation='vertical'):
         """
         Dessine un motif en zigzag avec des courbes aux extrémités.
 
@@ -279,6 +285,82 @@ class PatternGenerator:
                 break
 
         return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
+
+
+class Interpolator:
+    def my_log(self, M):
+        twist = np.zeros(6)
+        twist[:3] = M.translation
+        twist[3:] = pin.log3(M.rotation)
+        return twist
+        # return pin.log6(M)
+
+    def my_exp(self, twist):
+        M = pin.SE3()
+        M.translation = twist[:3]
+        M.rotation = pin.exp3(twist[3:])
+        return M
+        #return pin.exp6(twist)
+    
+    def my_dist(self, a, b):
+        twist = self.my_log(a.actInv(b))
+        weight = np.array([1.]*3 + [0.1]*3)
+        return np.linalg.norm(twist*weight)
+
+    def __init__(self, waypoints, speed ):
+        self.waypoints = waypoints
+        self.v = speed
+        self.distances = self.getDistances()
+        self.d_total = sum(self.distances)
+        self.dt = [d / self.v for d in self.distances]
+        self.t_total = sum(self.dt)
+
+    def getDistances(self):
+        """Calculates the list of the distances between two consecutive points with accounts to translation and rotation.
+
+        Returns:
+            List(float): list of the distances
+        """
+        distances = []
+        for i in range(len(self.waypoints)-1):
+            current_pt = self.waypoints[i]
+            next_pt = self.waypoints[i+1]
+            d_segment = self.my_dist(current_pt, next_pt)
+            distances.append(d_segment)
+        return distances
+    
+    def __call__(self, t):
+        if t > self.t_total:
+            return self.waypoints[-1]
+        else: 
+            i = 0
+            while t > self.dt[i]:
+                t = t - self.dt[i]
+                i += 1
+
+            alpha = t/self.dt[i]
+            current_pt = self.waypoints[i]
+            next_pt = self.waypoints[i+1]
+            
+            # A = pin.log6(current_pt.actInv(next_pt)) 
+            # B = pin.exp6(alpha * A)
+
+            # linear interpolation
+            A = self.my_log(current_pt.actInv(next_pt)) 
+            B = self.my_exp(alpha * A)
+
+            p =  current_pt.act(B)
+            return p
+                
+            
+        
+
+    
+    
+        
+
+            
+
 
 class SplineGenerator:
     """
@@ -510,8 +592,11 @@ class TestTrajs:
             current_point[indexDict[sine_axis]] += sin_val # add the sine value to the correct axis
             current_point[indexDict[ampl_axis]]+=i
 
-            trajectory.append(current_point)
-        return trajectory
+            trajectory.append(np.array(current_point))
+
+        
+        points = add_orientation(trajectory)
+        return points
 
         # amplitude * sin(period*(x-length_offset)) + height_offset
 
@@ -562,15 +647,121 @@ def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
             color=colors[i], arrow_length_ratio = 0.01, length=0.05
         )
 
-if __name__=="__main__":
-    # patternGen = PatternGenerator([1,1,0], (0.5,0,0.2))
-    # positions = patternGen.generate_pattern('zigzag_curve',stride=0.5)
+def add_orientation(positions):
+    points = []
+    for i in range(len(positions)-1):
+        print()
+        ori = computeMatrixOrientation(positions[i], positions[i+1])
+        point = pin.SE3(ori, positions[i])
+        points.append(point)
+    return points
 
+
+def computeMatrixOrientation(current_point, next_point):
+    direction_vector = next_point - current_point
+    roll = np.pi
+    pitch = 0
+    yaw = np.arctan2(direction_vector[1], direction_vector[0])
+    orientation = rpyToMatrix(roll, pitch, yaw)
+    return orientation
+
+if __name__=="__main__":
+    # start = pin.SE3(rpyToMatrix(-3.14128088,  0.05769075,  0.00540671), np.array([ 2.99996436e-01, -1.34822114e-07,  4.60813723e-01]))
+    # patternGen = PatternGenerator([0.5,0.5,0], (0.5, 0,0.1))
+    # positions = [start] + patternGen.generate_pattern('zigzag_curve',stride=0.1)
+
+    
     test_trajs = TestTrajs()
-    start = [0.5, 0.5, 0.2]
-    end = [1, 2, 1]
+    startsin = [0.3, -0., 0.2]
+    positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
+    interpolator = Interpolator(positions, 0.1)
+
+
+    # orientation0 = rpyToMatrix(0,0,0)
+    # pt0 = pin.SE3(orientation0, np.array([0,0,0]))
+
+    # orientation1 = rpyToMatrix(0,0,1)
+    # pt1 = pin.SE3(orientation1, np.array([1,0.5,0]))
+
+    # orientation2 = rpyToMatrix(0,0,2)
+    # pt2 = pin.SE3(orientation2, np.array([2,0,0]))
+
+    # orientation3 = rpyToMatrix(0,0,3)
+    # pt3 = pin.SE3(orientation3, np.array([3,0.5,0]))
+
+    # positions = [start, pt0, pt1, pt2, pt3]
+
+
+
+
+
+    # Debug of trajectory of adding orientation
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    i = 0
+    while i < len(positions):
+        orientation = matrixToRpy(positions[i].rotation)
+        print(orientation)
+        roll = orientation[0]
+        pitch = orientation[1]
+        yaw = orientation[2]
+        pose = positions[i].translation
+        R = RPY2Mat(roll, pitch, yaw)
+        print((R))
+        print((pose))
+        pose_6d = pin.SE3(R, pose)
+        draw_frame(ax, pose_6d)
+        ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
+        i += 1
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title("Interpolation position + orientation 3D (RBF)")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+    # Debug of trajectory of adding orientation
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    t = 0
+    while t <= interpolator.t_total:
+        point = interpolator(t)
+        orientation = matrixToRpy(point.rotation)
+        print(orientation)
+        roll = orientation[0]
+        pitch = orientation[1]
+        yaw = orientation[2]
+        pose = point.translation
+        R = RPY2Mat(roll, pitch, yaw)
+        print((R))
+        print((pose))
+        pose_6d = pin.SE3(R, pose)
+        draw_frame(ax, pose_6d)
+        ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
+        t += 0.5
+
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    ax.set_title("Interpolation position + orientation 3D (RBF)")
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
+
+    #=====================================
+
+    # test_trajs = TestTrajs()
+    # start = [0.5, 0.5, 0.2]
+    # end = [1, 2, 1]
     # positions = test_trajs.line(start, end)
-    positions = test_trajs.sine(start_point=start,length=1.5,period=0.1,amplitude=0.2, dist_between_points=0.01)
+    # positions = test_trajs.sine(start_point=start,length=1.5,period=0.1,amplitude=0.2, dist_between_points=0.01)
 
     # positions = [np.array([0.5, 0.0, 0.2]),
     #             np.array([ 0.5, 0.0, 0.5]),
@@ -589,38 +780,46 @@ if __name__=="__main__":
     #             np.array([0.35, -0.35,  0.5]),
     #             np.array([0.35, -0.35,  0.2]),
     #             np.array([0.5, 0.0, 0.2])]
+    
+    # startsin = [0.3, -0., 0.2]
+    # positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
 
-    duration = 7
-    start_pose = [ 3.33970764e-01, -3.08143602e-16,  5.40159383e-01]
-    start_ori = [ 2.77295717, -0.34585912 , 0.85050551]
-    spline = SplineGenerator(start_pose, start_ori, waypoints=positions)
+    # test_trajs = TestTrajs()
+    # start = [0.5, -0.2, 0.2]
+    # end = [0.5, 0.2, 0.2]
+    # positions = test_trajs.line(start, end)
 
-    # Debug of trajectory
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    t = 0
-    while t < spline.t_total:
-        orientation = spline.get_interpolated_ori(t)
-        roll = orientation[0]
-        pitch = orientation[1]
-        yaw = orientation[2]
-        pose = spline.get_interpolated_pose(t)
-        R = RPY2Mat(roll, pitch, yaw)
-        print((R))
-        print((pose))
-        pose_6d = pin.SE3(R, pose)
-        draw_frame(ax, pose_6d)
-        ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
-        t = t + 0.02
+    # duration = 7
+    # start_pose =[ 3.01334392e-01, -1.35423407e-07 , 4.64883839e-01]
+    # start_ori = [-3.14130743,  0.05278799,  0.00540524]
+    # spline = SplineGenerator(start_pose, start_ori, waypoints=positions)
+
+    # # Debug of trajectory
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # t = 0
+    # while t < spline.t_total:
+    #     orientation = spline.get_interpolated_ori(t)
+    #     roll = orientation[0]
+    #     pitch = orientation[1]
+    #     yaw = orientation[2]
+    #     pose = spline.get_interpolated_pose(t)
+    #     R = RPY2Mat(roll, pitch, yaw)
+    #     print((R))
+    #     print((pose))
+    #     pose_6d = pin.SE3(R, pose)
+    #     draw_frame(ax, pose_6d)
+    #     ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
+    #     t = t + 0.02
 
 
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title("Interpolation position + orientation 3D (RBF)")
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+    # ax.set_xlabel('X')
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('Z')
+    # ax.set_title("Interpolation position + orientation 3D (RBF)")
+    # ax.legend()
+    # plt.tight_layout()
+    # plt.show()
 
 
     # traj = []
