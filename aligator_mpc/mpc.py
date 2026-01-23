@@ -114,7 +114,6 @@ class MPC():
             self.solver.mu_init = self.parameters.mpc.solver.presolve.mu_init
             self.solver.tol = self.parameters.mpc.solver.presolve.tolerance            
         else:
-            sys.exit()
             self.solver.max_iters = self.parameters.mpc.solver.running.max_iters
             self.solver.mu_init = self.parameters.mpc.solver.running.mu_init
             self.solver.tol = self.parameters.mpc.solver.running.tolerance
@@ -309,7 +308,6 @@ class StageFactory():
             for constraint in self.stages_definition.constraints:
                 stage_model.addConstraint(*constraint)
             stages.append(stage_model)
-
         return stages , terminal_coststack
 
     # ==========================================================================
@@ -377,23 +375,23 @@ class StageFactory():
         """
         tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
         waypoint_costs = []
-        term_costs = []
         for t in range (self.parameters.mpc.n_total_steps):
-            target_pos_stage = self.interpolator(t*self.parameters.mpc.dt).translation
-            frame_pos_fn_stage = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos_stage, tool_id)
-            wt_frame_pos_stage = self.parameters.mpc.weights.running.waypoints.frame_pos * np.eye(frame_pos_fn_stage.nr)
-            cost_stage = (f"frame_{t}", aligator.QuadraticResidualCost(self.space, frame_pos_fn_stage, wt_frame_pos_stage))
-            waypoint_costs.append(cost_stage)
+            # cost on the position of the waypoint
+            target_pos, target_vel = self.interpolator(t*self.parameters.mpc.dt)
+            target_pos = target_pos.translation
+            frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
+            wt_frame_pos = self.parameters.mpc.weights.running.waypoints.frame_pos * np.eye(frame_pos_fn.nr)
+            cost_pos = (f"frame_pos_{t}", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
+            waypoint_costs.append(cost_pos)
 
-            # t_end_horizon = (t + self.parameters.mpc.nb_steps_horizon-1)*self.parameters.mpc.dt
-            # target_pos_term = self.interpolator(t_end_horizon).translation 
-            # frame_pos_fn_term = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos_term, tool_id)
-            # wt_frame_pos_term = self.parameters.term_cost_weight * np.eye(frame_pos_fn_term.nr)
-            # term_cost = (f"term_frame_{t}", aligator.QuadraticResidualCost(self.space, frame_pos_fn_term, wt_frame_pos_term))
-            # term_costs.append(term_cost)
+            # cost on the velocity of the waypoint
+            frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, target_vel, tool_id, pin.WORLD)
+            wt_frame_vel = self.parameters.mpc.weights.running.waypoints.frame_vel * np.eye(frame_vel_fn.nr)
+            cost_vel = (f"frame_vel_{t}", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel))
+            waypoint_costs.append(cost_vel)
 
         self.stages_definition.stage_dep_costs.append(waypoint_costs)
-        # self.stages_definition.terminal_costs.append(term_costs)
+
 
     def addOrientationCosts(self):
         """
@@ -401,11 +399,13 @@ class StageFactory():
         """
         orientation_costs = []
         for t in range (self.parameters.mpc.n_total_steps):
-            R = self.interpolator(t*self.parameters.mpc.dt).rotation
+            pose , _ = self.interpolator(t*self.parameters.mpc.dt)
+            R = pose.rotation
             # R = pin.rpy.rpyToMatrix(rpy)
-            target_orientation = pin.Quaternion(R)
+            # target_orientation = pin.Quaternion(R)
 
-            target_placement = pin.SE3(target_orientation, np.zeros(3)) # only take orientation
+            target_placement = pin.SE3()
+            target_placement.rotation = pose.rotation # pin.rpy.rpyToMatrix(np.array([np.pi, 0.,0.])) #
 
             placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, target_placement, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)) # [err_pos(3), err_ori(3)]
 
@@ -480,6 +480,6 @@ class StageFactory():
         """
         traj = []
         for i in range(self.parameters.mpc.n_total_steps):
-            target = self.interpolator(i*self.parameters.mpc.dt)
-            traj.append(target.translation)
+            pos, _ = self.interpolator(i*self.parameters.mpc.dt)
+            traj.append(pos.translation)
         return traj

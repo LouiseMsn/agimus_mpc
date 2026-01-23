@@ -27,7 +27,7 @@ class PatternGenerator:
 
     def generate_pattern(self, pattern_type, step=10, stride=0.2, orientation='vertical'):
         if pattern_type == 'zigzag':
-            return self.zigzag(step=step, stride=stride, orientation=orientation)
+            return self.zig_zag_SE3(step=step, stride=stride, orientation=orientation)
         elif pattern_type == 'spiral':
             # return self.spiral_from_center(stride=stride)
             raise ValueError("This option is not working for now")
@@ -35,7 +35,12 @@ class PatternGenerator:
             return self.zig_zag_curve_SE3(step=step, stride=stride, orientation=orientation)
         else:
             raise ValueError("Unknown pattern type")
-
+        
+    def zig_zag_SE3(self, step=10, stride=0.2, orientation='vertical'):
+        positions = self.zigzag(step, stride, orientation)
+        points = add_orientation(positions, np.array([np.pi, 0., 0.]))
+        return points
+    
     def zigzag(self, step=10, stride=0.2, orientation='vertical'):
         """
         Draws a zigzag pattern.
@@ -92,7 +97,7 @@ class PatternGenerator:
 
     def zig_zag_curve_SE3(self, step=10, stride=0.2, orientation='vertical'):
         positions = self.zig_zag_curve_pos(step, stride, orientation)
-        points = add_orientation(positions)
+        points = add_orientation(positions, None)
         return points
 
     def zig_zag_curve_pos(self, step=10, stride=0.2, orientation='vertical'):
@@ -288,23 +293,28 @@ class PatternGenerator:
 
 
 class Interpolator:
-    def my_log(self, M):
-        twist = np.zeros(6)
-        twist[:3] = M.translation
-        twist[3:] = pin.log3(M.rotation)
+    def my_log(self, M : pin.SE3):
+        twist = pin.Motion()
+        twist.linear = M.translation
+        twist.angular = pin.log3(M.rotation)
+        # twist = np.zeros(6)
+        # twist[:3] = M.translation
+        # twist[3:] = pin.log3(M.rotation)
         return twist
         # return pin.log6(M)
 
-    def my_exp(self, twist):
+    def my_exp(self, twist : pin.Motion):
         M = pin.SE3()
-        M.translation = twist[:3]
-        M.rotation = pin.exp3(twist[3:])
+        # M.translation = twist[:3]
+        # M.rotation = pin.exp3(twist[3:])
+        M.translation = twist.linear
+        M.rotation = pin.exp3(twist.angular)
         return M
         #return pin.exp6(twist)
     
     def my_dist(self, a, b):
         twist = self.my_log(a.actInv(b))
-        weight = np.array([1.]*3 + [0.1]*3)
+        weight = np.array([1.]*3 + [0.]*3)
         return np.linalg.norm(twist*weight)
 
     def __init__(self, waypoints, speed ):
@@ -331,14 +341,13 @@ class Interpolator:
     
     def __call__(self, t):
         if t > self.t_total:
-            return self.waypoints[-1]
+            return (self.waypoints[-1] , pin.Motion(np.zeros(6)))  # (last waypoint , null vel)
         else: 
             i = 0
             while t > self.dt[i]:
                 t = t - self.dt[i]
                 i += 1
 
-            alpha = t/self.dt[i]
             current_pt = self.waypoints[i]
             next_pt = self.waypoints[i+1]
             
@@ -346,11 +355,16 @@ class Interpolator:
             # B = pin.exp6(alpha * A)
 
             # linear interpolation
-            A = self.my_log(current_pt.actInv(next_pt)) 
-            B = self.my_exp(alpha * A)
+            
+            twist_local = pin.Motion(self.my_log(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_pt to next_pt in 1 sec
+            pose_local = self.my_exp(twist_local * t) # integrate the twist over t to get the transformation from current point to point(t)
 
-            p =  current_pt.act(B)
-            return p
+            pose_world =  current_pt.act(pose_local) # apply the transformation to the current point to get the pose of point(t)
+            twist_world = pose_world.act(twist_local)
+
+            # print(f'twist_local { twist_local} \n pose_local {pose_local} \n pose_world {pose_world} \n twist_world {twist_world}')
+
+            return (pose_world, twist_world)
                 
             
         
@@ -595,7 +609,7 @@ class TestTrajs:
             trajectory.append(np.array(current_point))
 
         
-        points = add_orientation(trajectory)
+        points = add_orientation(trajectory, None)
         return points
 
         # amplitude * sin(period*(x-length_offset)) + height_offset
@@ -647,11 +661,13 @@ def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
             color=colors[i], arrow_length_ratio = 0.01, length=0.05
         )
 
-def add_orientation(positions):
+def add_orientation(positions, orientation):
     points = []
     for i in range(len(positions)-1):
-        print()
-        ori = computeMatrixOrientation(positions[i], positions[i+1])
+        if type(orientation) == type(np.empty(1)):
+            ori = rpyToMatrix(orientation)
+        else:
+            ori = computeMatrixOrientation(positions[i], positions[i+1])
         point = pin.SE3(ori, positions[i])
         points.append(point)
     return points
@@ -666,14 +682,15 @@ def computeMatrixOrientation(current_point, next_point):
     return orientation
 
 if __name__=="__main__":
-    # start = pin.SE3(rpyToMatrix(-3.14128088,  0.05769075,  0.00540671), np.array([ 2.99996436e-01, -1.34822114e-07,  4.60813723e-01]))
-    # patternGen = PatternGenerator([0.5,0.5,0], (0.5, 0,0.1))
+    start = pin.SE3(rpyToMatrix(-3.14128088,  0.05769075,  0.00540671), np.array([ 2.99996436e-01, -1.34822114e-07,  4.60813723e-01]))
+    patternGen = PatternGenerator([0.5,0.5,0], (0.5, 0,0.1))
     # positions = [start] + patternGen.generate_pattern('zigzag_curve',stride=0.1)
-
+    patternGen = PatternGenerator([0.3,0.3,0], (0.5, 0,0.1))
+    positions = [start] +  patternGen.generate_pattern('zigzag',stride=0.05)
     
-    test_trajs = TestTrajs()
-    startsin = [0.3, -0., 0.2]
-    positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
+    # test_trajs = TestTrajs()
+    # startsin = [0.3, -0., 0.2]
+    # positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
     interpolator = Interpolator(positions, 0.1)
 
 
@@ -727,7 +744,7 @@ if __name__=="__main__":
     ax = fig.add_subplot(111, projection='3d')
     t = 0
     while t <= interpolator.t_total:
-        point = interpolator(t)
+        point, _ = interpolator(t)
         orientation = matrixToRpy(point.rotation)
         print(orientation)
         roll = orientation[0]
@@ -740,7 +757,7 @@ if __name__=="__main__":
         pose_6d = pin.SE3(R, pose)
         draw_frame(ax, pose_6d)
         ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
-        t += 0.5
+        t += 0.1
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
