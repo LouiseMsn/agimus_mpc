@@ -67,7 +67,7 @@ if __name__=="__main__":
 
     launch_check = input("Enter to launch") #! fixed with viser PR #614
 
-    for t in range (mpc.parameters.n_total_steps+1):
+    for t in range (mpc.parameters.mpc.n_total_steps+1):
         #* Get robot state (Sensor msg)
 
         # print(f't:{t}')

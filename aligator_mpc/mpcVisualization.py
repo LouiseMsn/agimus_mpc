@@ -96,14 +96,14 @@ class Visualization():
         """
         t = self.mpc.solver_stage_number
         input_traj = self.mpc.stage_factory.getFullTrajectory_pt_by_pt()
-        horizon_len = self.mpc.parameters.nb_steps_horizon
+        horizon_len = self.mpc.parameters.mpc.nb_steps_horizon
 
         if (t+horizon_len) > len(input_traj):
             horizon = input_traj[t:]
             for k in range(len(horizon), horizon_len):
                 horizon.append(input_traj[-1])
         else:
-            horizon = input_traj[t:t+self.mpc.parameters.nb_steps_horizon]
+            horizon = input_traj[t:t+self.mpc.parameters.mpc.nb_steps_horizon]
 
         self.vizer.viewer.scene.add_spline_catmull_rom(
                                                         "Horizon",
@@ -118,7 +118,7 @@ class Visualization():
         """
         Updates the joint limits plots
         """
-        self.plot_time = np.append(self.plot_time, np.array([t*self.mpc.parameters.dt]))
+        self.plot_time = np.append(self.plot_time, np.array([t*self.mpc.parameters.mpc.dt]))
 
         for i in range(len(self.plot_qs)):
             self.plot_qs[i] = np.append(self.plot_qs[i], np.array([qs[i]]))
@@ -145,7 +145,7 @@ class Visualization():
                                             color=np.array([6, 117, 255]),
                                             segments=100,
                                             )
-        self.vizer.play([qs], self.mpc.parameters.dt, callback=self._callbackVisualization)
+        self.vizer.play([qs], self.mpc.parameters.mpc.dt, callback=self._callbackVisualization)
 
     def display(self, xs): #? Depreciate?
         """
@@ -173,7 +173,7 @@ class Visualization():
         qs = [x[:self.mpc.n_q] for x in xs_opt]
         input_return = input("[Press enter to play, type \"q\" to exit]\n")
         while "q" not in input_return :
-            self.vizer.play(qs, self.mpc.parameters.dt, callback=self._callbackVisualization)
+            self.vizer.play(qs, self.mpc.parameters.mpc.dt, callback=self._callbackVisualization)
             input_return = input("[Press enter to play, type \"q\" to exit]\n")
 
 
@@ -184,7 +184,7 @@ class Visualization():
         xs = np.array(xs)
         qs = xs[:,:self.mpc.n_q]
         pts = self.get_endpoint_traj(xs_opt)
-        times = np.linspace(0.0, self.mpc.parameters.total_time , self.mpc.parameters.n_total_steps + 1 )
+        times = np.linspace(0.0, self.mpc.parameters.mpc.total_time , self.mpc.parameters.mpc.n_total_steps + 1 )
 
         fig: plt.Figure = plt.figure(constrained_layout=True)
         fig.set_size_inches(6.4, 6.4)

@@ -13,8 +13,8 @@ import time
 def runBenchParallel(nb_threads, nb_stages):
     print(f"nb threads {nb_threads}, nb stages {nb_stages}")
     params = Params()
-    params.solver_linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
-    params.solver_num_threads = nb_threads
+    params.solver.linear_solver_choice = aligator.LQ_SOLVER_PARALLEL
+    params.solver.num_threads = nb_threads
     params.nb_steps_horizon = nb_stages
     mpc = MPC(parameters=params, waypoints=positions)
     mpc.iterate(mpc.x0)
@@ -28,7 +28,7 @@ def runBenchParallel(nb_threads, nb_stages):
 
 def runBenchSerial(nb_stages):
     params= Params()
-    params.solver_linear_solver_choice = aligator.LQ_SOLVER_SERIAL
+    params.solver.linear_solver_choice = aligator.LQ_SOLVER_SERIAL
     print(nb_stages)
     params.nb_steps_horizon = nb_stages
     mpc = MPC(parameters=params, waypoints=positions)
