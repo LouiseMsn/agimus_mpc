@@ -309,7 +309,7 @@ class Interpolator:
     
     def my_dist(self, a, b):
         twist = self.my_log(a.actInv(b))
-        weight = np.array([1.]*3 + [0.]*3)
+        weight = np.array([1.]*3 + [0.1]*3)
         return np.linalg.norm(twist*weight)
 
     def __init__(self, waypoints, speed ):
@@ -351,7 +351,8 @@ class Interpolator:
 
             # linear interpolation
             
-            twist_local = pin.Motion(self.my_log(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_pt to next_pt in 1 sec
+            twist_local = pin.Motion(self.my_log(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_p     
+        
             pose_local = self.my_exp(twist_local * t) # integrate the twist over t to get the transformation from current point to point(t)
 
             pose_world =  current_pt.act(pose_local) # apply the transformation to the current point to get the pose of point(t)
@@ -361,16 +362,6 @@ class Interpolator:
 
             return (pose_world, twist_world)
                 
-            
-        
-
-    
-    
-        
-
-            
-
-
 class SplineGenerator:
     """
     Class that interpolates the `waypoints` into a spline and calculates the orientation between them so that the X axis faces the nex waypoint and the Z axis faces downward
@@ -672,7 +663,7 @@ def computeMatrixOrientation(current_point, next_point):
     direction_vector = next_point - current_point
     roll = np.pi
     pitch = 0
-    yaw = np.arctan2(direction_vector[1], direction_vector[0])
+    yaw = np.arctan2(direction_vector[1], direction_vector[0]) - np.pi/2
     orientation = rpyToMatrix(roll, pitch, yaw)
     return orientation
 

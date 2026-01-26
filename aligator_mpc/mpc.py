@@ -358,11 +358,23 @@ class StageFactory():
     def addRegulationCosts(self):
         ## Running costs
         # State reg
-        wt_x = self.parameters.mpc.weights.running.regulation.joint*np.ones(self.ndx)
-        wt_x[self.nq:] = self.parameters.mpc.weights.running.regulation.vel
-        wt_x = np.diag(wt_x)
+        wt_x = np.diag(
+        [self.parameters.mpc.weights.running.regulation.joint] * self.nv
+        +
+        [self.parameters.mpc.weights.running.regulation.vel] * self.nv)
 
-        stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, np.zeros(self.space.ndx), wt_x)) for i in range(self.parameters.mpc.n_total_steps)]
+        position_ref = [-8.97653063991213e-07
+        ,-0.7808463663675579
+        ,2.2971344285441086e-15
+        ,-2.366688685342141
+        ,-9.726534605596857e-06
+        ,1.5702636943341912
+        ,0.7800000000000175]
+        vel_ref = [0.]*7
+
+        x_ref = np.array(position_ref + vel_ref)
+
+        stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)) for i in range(self.parameters.mpc.n_total_steps)]
 
         if(self.parameters.mpc.weights.running.regulation.vel > 0. or self.parameters.mpc.weights.running.regulation.joint > 0.):
             self.stages_definition.stage_dep_costs.append(stage_reg_cost)
