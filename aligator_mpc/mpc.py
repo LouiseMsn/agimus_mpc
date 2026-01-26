@@ -416,7 +416,7 @@ class StageFactory():
 
             placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, pose, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name))
 
-            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation * w for w in [1., 1., 10.]] + [self.parameters.mpc.weights.running.waypoints.pose.orientation  * w for w in [1., 1., 10.]])
+            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation * w for w in [1., 1., 5.]] + [self.parameters.mpc.weights.running.waypoints.pose.orientation  * w for w in [1., 1., 3.]])
             cost = (f"pose_{t}", aligator.QuadraticResidualCost(self.space, placement_residual, wt_frame_pose))
             placement_costs.append(cost)
         
