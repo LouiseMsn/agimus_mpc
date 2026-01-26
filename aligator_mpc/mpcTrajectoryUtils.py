@@ -294,23 +294,18 @@ class PatternGenerator:
 
 class Interpolator:
     def my_log(self, M : pin.SE3):
-        twist = pin.Motion()
-        twist.linear = M.translation
-        twist.angular = pin.log3(M.rotation)
-        # twist = np.zeros(6)
-        # twist[:3] = M.translation
-        # twist[3:] = pin.log3(M.rotation)
-        return twist
-        # return pin.log6(M)
+        # twist = pin.Motion()
+        # twist.linear = M.translation
+        # twist.angular = pin.log3(M.rotation)
+        # return twist
+        return pin.log6(M)
 
     def my_exp(self, twist : pin.Motion):
-        M = pin.SE3()
-        # M.translation = twist[:3]
-        # M.rotation = pin.exp3(twist[3:])
-        M.translation = twist.linear
-        M.rotation = pin.exp3(twist.angular)
-        return M
-        #return pin.exp6(twist)
+        # M = pin.SE3()
+        # M.translation = twist.linear
+        # M.rotation = pin.exp3(twist.angular)
+        # return M
+        return pin.exp6(twist)
     
     def my_dist(self, a, b):
         twist = self.my_log(a.actInv(b))

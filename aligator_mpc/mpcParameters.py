@@ -11,10 +11,13 @@ class RegulationWeights(BaseModel):
     vel: float
     command: float
 
-class WaypointWeights(BaseModel):
-    frame_pos: float
-    frame_vel: float
+class WaypointWeights6D(BaseModel):
+    translation: float
     orientation: float
+
+class WaypointWeights(BaseModel):
+    pose: WaypointWeights6D
+    vel: WaypointWeights6D
 
 class RunningWeights(BaseModel):
     regulation: RegulationWeights
