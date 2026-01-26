@@ -12,6 +12,7 @@ from aligator_mpc.mpcUtils import StagesDefinition
 from pinocchio.visualize import MeshcatVisualizer
 from copy import copy
 import sys
+from ament_index_python.packages import get_package_share_directory
 
 # !! TEMP
 from line_profiler import profile
@@ -23,7 +24,9 @@ class MPC():
         self.waypoints = waypoints
         print(self.parameters)
         # Initialize robot
-        self.robot = ex_robot_data.load(self.parameters.robot.name)
+        # self.robot = ex_robot_data.load(self.parameters.robot.name)
+        self.robot = r = pin.RobotWrapper.BuildFromURDF("src/agimus-demos/agimus_demo_09_glue_spreading/urdf/fr3.urdf",package_dirs=[get_package_share_directory("franka_description")])
+
         self.robot.model = pin.buildReducedModel(self.robot.model, [8,9], pin.neutral(self.robot.model))
         self.robot.data = self.robot.model.createData()
 
@@ -118,7 +121,7 @@ class MPC():
             self.solver.mu_init = self.parameters.mpc.solver.running.mu_init
             self.solver.tol = self.parameters.mpc.solver.running.tolerance
             # cycle the data
-            us   = self.cycleData(self.results.us.tolist(), current_us, "xs")
+            us   = self.cycleData(self.results.us.tolist(), None, None)
             xs   = self.cycleData(self.results.xs.tolist(), current_xs,"xs")
             end_of_horizon_index = self.solver_stage_number + self.parameters.mpc.nb_steps_horizon - 1 # -1 because the first stage is 0
 
