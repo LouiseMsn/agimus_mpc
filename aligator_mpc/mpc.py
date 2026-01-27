@@ -15,7 +15,7 @@ import sys
 from ament_index_python.packages import get_package_share_directory
 
 # !! TEMP
-from line_profiler import profile
+# from line_profiler import profile
 from rclpy.impl import rcutils_logger
 
 class MPC():
@@ -359,9 +359,9 @@ class StageFactory():
         ## Running costs
         # State reg
         wt_x = np.diag(
-        [self.parameters.mpc.weights.running.regulation.joint * w for w in [10,1,1,1,1,0.1,0.1]]
+        [self.parameters.mpc.weights.running.regulation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
         +
-        [self.parameters.mpc.weights.running.regulation.vel * w for w in [10,1,1,1,1,0.1,0.1]])
+        [self.parameters.mpc.weights.running.regulation.vel * w for w in [20,20,1,1,1,0.1,0.01]])
 
         position_ref = [-8.97653063991213e-07
         ,-0.7808463663675579
@@ -369,7 +369,7 @@ class StageFactory():
         ,-2.366688685342141
         ,-9.726534605596857e-06
         ,1.5702636943341912
-        ,0.7800000000000175]
+        ,-0.6913420805230404]
         vel_ref = [0.]*7
 
         x_ref = np.array(position_ref + vel_ref)
@@ -390,9 +390,9 @@ class StageFactory():
         ## Terminal costs
         # State reg
         wt_x_term = np.diag(
-        [self.parameters.mpc.weights.terminal.regulation.joint * w for w in [10,1,1,1,1,0.1,0.1]]
+        [self.parameters.mpc.weights.terminal.regulation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
         +
-        [self.parameters.mpc.weights.terminal.regulation.vel * w for w in [10,1,1,1,1,0.1,0.1]])
+        [self.parameters.mpc.weights.terminal.regulation.vel * w for w in [20,20,1,1,1,0.1,0.01]])
 
         if(self.parameters.mpc.weights.terminal.regulation.vel > 0. or self.parameters.mpc.weights.terminal.regulation.joint > 0.):
             self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x_term)))
@@ -416,7 +416,7 @@ class StageFactory():
 
             placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, pose, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name))
 
-            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation * w for w in [1., 1., 5.]] + [self.parameters.mpc.weights.running.waypoints.pose.orientation  * w for w in [1., 1., 3.]])
+            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation * w for w in [1., 1., 5.]] + [self.parameters.mpc.weights.running.waypoints.pose.orientation  * w for w in [1., 1., 1.]])
             cost = (f"pose_{t}", aligator.QuadraticResidualCost(self.space, placement_residual, wt_frame_pose))
             placement_costs.append(cost)
         

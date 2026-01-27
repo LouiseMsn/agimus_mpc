@@ -663,7 +663,7 @@ def computeMatrixOrientation(current_point, next_point):
     direction_vector = next_point - current_point
     roll = np.pi
     pitch = 0
-    yaw = np.arctan2(direction_vector[1], direction_vector[0]) - np.pi/2
+    yaw = np.arctan2(direction_vector[1], direction_vector[0]) + np.pi/2
     orientation = rpyToMatrix(roll, pitch, yaw)
     return orientation
 
