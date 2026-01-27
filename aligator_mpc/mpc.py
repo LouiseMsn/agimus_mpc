@@ -361,7 +361,7 @@ class StageFactory():
         wt_x = np.diag(
         [self.parameters.mpc.weights.running.regulation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
         +
-        [self.parameters.mpc.weights.running.regulation.vel * w for w in [20,20,1,1,1,0.1,0.01]])
+        [self.parameters.mpc.weights.running.regulation.vel * w for w in [20,20,1,1,1,1.,1.]])
 
         position_ref = [-8.97653063991213e-07
         ,-0.7808463663675579
@@ -392,7 +392,7 @@ class StageFactory():
         wt_x_term = np.diag(
         [self.parameters.mpc.weights.terminal.regulation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
         +
-        [self.parameters.mpc.weights.terminal.regulation.vel * w for w in [20,20,1,1,1,0.1,0.01]])
+        [self.parameters.mpc.weights.terminal.regulation.vel * w for w in [20,20,1,1,1,1.,1.]])
 
         if(self.parameters.mpc.weights.terminal.regulation.vel > 0. or self.parameters.mpc.weights.terminal.regulation.joint > 0.):
             self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x_term)))
