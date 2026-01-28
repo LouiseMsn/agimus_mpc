@@ -78,50 +78,9 @@ class Config(BaseModel):
         return cls(**data)
 
 
-
-
-    # def __repr__(self)->str:
-    #     """
-    #     Formats the output when printing the object
-    #     """
-    #     return f'Robot parameters:\n'\
-    #                 f'\tRobot name: {self.robot_name}\n'\
-    #                 f'\tWorld frame name: "{self.world_frame_name}"\n'\
-    #                 f'\tTool frame name: "{self.tool_frame_name}"\n'\
-    #             f'\nMPC parameters:\n'\
-    #                 f'\tdt: {self.dt} (secs)\n'\
-    #                 f'\tTotal time: {self.total_time} (secs)\n'\
-    #                 f'\tTotal number of steps: {self.n_total_steps}\n'\
-    #                 f'\tHorizon: {self.nb_steps_horizon} (steps)\n'\
-    #                 f'\tHorizon: {self.mpc_horizon} (secs)\n'\
-    #                 f'\tNumber max of iterations at 1st iteration: {self.solver.max_iters_1st_iter}\n'\
-    #                 f'\tNumber max of iterations: {self.solver.max_iters}\n'\
-    #                 f'\tSolver:\n'\
-    #                     f'\t\tVerbose: {self.verbose}\n'\
-    #                     f'\t\tTolerance: {self.solver.tolerance}\n'\
-    #                     f'\t\tRollout type: {self.solver.rollout_type}\n'\
-    #                     f'\t\tSA Strategy: {self.solver.sa_strategy}\n'\
-    #                     f'\t\tLinear solver choice: {self.solver.linear_solver_choice}\n'\
-    #                     f'\t\tNumber of threads: {self.solver.num_threads}\n'\
-    #                     f'\t\tMu initialization at 1rst iteration: {self.solver.mu_init_1st_iter}\n'\
-    #                     f'\t\tMu at initialization: {self.solver.mu_init}\n'\
-    #             f'\nWeights parameters:\n'\
-    #             f'\tRegularisations costs:\n'\
-    #                 f'\t\tJoints: {self.mpc.weights.running.regularisation.joint}\n'\
-    #                 f'\t\tVelocity: {self.mpc.weights.running.regularisation.vel}\n'\
-    #                 f'\t\tCommand: {self.mpc.weights.running.regularisation.command}\n'\
-    #                 f'\t\tTerminal state: {self.term_state_reg_cost}\n'\
-    #             f'\n\tWaypoints:\n'\
-    #                 f'\t\tFrame position: {self.mpc.weights.waypoints.frame_pos}\n'\
-    #                 f'\t\tFrame velocity: {self.mpc.weights.waypoints.frame_vel}\n'\
-    #             f'\n\tOrientation: {self.mpc.weights.waypoints.orientation}\n'\
-    #             f'\n\tCollision: {self.mpc.weights.collision}\n'
-
-
 if __name__=="__main__":
     path = Path("config/mpc_config.yaml")
     params_test = Config.from_yaml(path)
-    # print(params_test.robot)
 
     richprint(params_test)
 
