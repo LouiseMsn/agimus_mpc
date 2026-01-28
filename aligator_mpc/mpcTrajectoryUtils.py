@@ -293,28 +293,27 @@ class PatternGenerator:
 
 
 class Interpolator:
-    def my_log(self, M : pin.SE3):
+    def my_log6(self, M : pin.SE3):
+        return pin.log6(M)
+    
+    def my_exp6(self, twist : pin.Motion):
+        return pin.exp6(twist)
+    
+    def my_log3(self, M: pin.SE3):
         twist = pin.Motion()
         twist.linear = M.translation
         twist.angular = pin.log3(M.rotation)
-        # twist = np.zeros(6)
-        # twist[:3] = M.translation
-        # twist[3:] = pin.log3(M.rotation)
         return twist
-        # return pin.log6(M)
-
-    def my_exp(self, twist : pin.Motion):
+    
+    def my_exp3(self, twist : pin.Motion):
         M = pin.SE3()
-        # M.translation = twist[:3]
-        # M.rotation = pin.exp3(twist[3:])
         M.translation = twist.linear
         M.rotation = pin.exp3(twist.angular)
         return M
-        #return pin.exp6(twist)
     
     def my_dist(self, a, b):
-        twist = self.my_log(a.actInv(b))
-        weight = np.array([1.]*3 + [0.]*3)
+        twist = self.my_log3(a.actInv(b))
+        weight = np.array([1.]*3 + [0.1]*3)
         return np.linalg.norm(twist*weight)
 
     def __init__(self, waypoints, speed ):
@@ -356,26 +355,15 @@ class Interpolator:
 
             # linear interpolation
             
-            twist_local = pin.Motion(self.my_log(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_pt to next_pt in 1 sec
-            pose_local = self.my_exp(twist_local * t) # integrate the twist over t to get the transformation from current point to point(t)
+            twist_local = pin.Motion(self.my_log6(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_p     
+        
+            pose_local = self.my_exp6(twist_local * t) # integrate the twist over t to get the transformation from current point to point(t)
 
             pose_world =  current_pt.act(pose_local) # apply the transformation to the current point to get the pose of point(t)
             twist_world = pose_world.act(twist_local)
 
-            # print(f'twist_local { twist_local} \n pose_local {pose_local} \n pose_world {pose_world} \n twist_world {twist_world}')
-
             return (pose_world, twist_world)
                 
-            
-        
-
-    
-    
-        
-
-            
-
-
 class SplineGenerator:
     """
     Class that interpolates the `waypoints` into a spline and calculates the orientation between them so that the X axis faces the nex waypoint and the Z axis faces downward
@@ -677,7 +665,7 @@ def computeMatrixOrientation(current_point, next_point):
     direction_vector = next_point - current_point
     roll = np.pi
     pitch = 0
-    yaw = np.arctan2(direction_vector[1], direction_vector[0])
+    yaw = np.arctan2(direction_vector[1], direction_vector[0]) + np.pi/2
     orientation = rpyToMatrix(roll, pitch, yaw)
     return orientation
 
@@ -692,25 +680,6 @@ if __name__=="__main__":
     # startsin = [0.3, -0., 0.2]
     # positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
     interpolator = Interpolator(positions, 0.1)
-
-
-    # orientation0 = rpyToMatrix(0,0,0)
-    # pt0 = pin.SE3(orientation0, np.array([0,0,0]))
-
-    # orientation1 = rpyToMatrix(0,0,1)
-    # pt1 = pin.SE3(orientation1, np.array([1,0.5,0]))
-
-    # orientation2 = rpyToMatrix(0,0,2)
-    # pt2 = pin.SE3(orientation2, np.array([2,0,0]))
-
-    # orientation3 = rpyToMatrix(0,0,3)
-    # pt3 = pin.SE3(orientation3, np.array([3,0.5,0]))
-
-    # positions = [start, pt0, pt1, pt2, pt3]
-
-
-
-
 
     # Debug of trajectory of adding orientation
     fig = plt.figure()
@@ -766,98 +735,3 @@ if __name__=="__main__":
     ax.legend()
     plt.tight_layout()
     plt.show()
-
-
-
-
-
-
-    #=====================================
-
-    # test_trajs = TestTrajs()
-    # start = [0.5, 0.5, 0.2]
-    # end = [1, 2, 1]
-    # positions = test_trajs.line(start, end)
-    # positions = test_trajs.sine(start_point=start,length=1.5,period=0.1,amplitude=0.2, dist_between_points=0.01)
-
-    # positions = [np.array([0.5, 0.0, 0.2]),
-    #             np.array([ 0.5, 0.0, 0.5]),
-    #             np.array([0.35, 0.35, 0.5]),
-    #             np.array([0.35, 0.35, 0.2]),
-    #             np.array([0.0, 0.5, 0.2]),
-    #             np.array([0.0, 0.5, 0.5]),
-    #             np.array([-0.35, 0.35, 0.5]),
-    #             np.array([-0.35, 0.35, 0.2]),
-    #             np.array([-0.5, 0.0, 0.2]),
-    #             np.array([-0.5, 0.0, 0.5]),
-    #             np.array([-0.35, -0.35, 0.5]),
-    #             np.array([-0.35, -0.35, 0.2]),
-    #             np.array([0.0, -0.5, 0.2]),
-    #             np.array([0.0, -0.5, 0.5]),
-    #             np.array([0.35, -0.35,  0.5]),
-    #             np.array([0.35, -0.35,  0.2]),
-    #             np.array([0.5, 0.0, 0.2])]
-    
-    # startsin = [0.3, -0., 0.2]
-    # positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
-
-    # test_trajs = TestTrajs()
-    # start = [0.5, -0.2, 0.2]
-    # end = [0.5, 0.2, 0.2]
-    # positions = test_trajs.line(start, end)
-
-    # duration = 7
-    # start_pose =[ 3.01334392e-01, -1.35423407e-07 , 4.64883839e-01]
-    # start_ori = [-3.14130743,  0.05278799,  0.00540524]
-    # spline = SplineGenerator(start_pose, start_ori, waypoints=positions)
-
-    # # Debug of trajectory
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # t = 0
-    # while t < spline.t_total:
-    #     orientation = spline.get_interpolated_ori(t)
-    #     roll = orientation[0]
-    #     pitch = orientation[1]
-    #     yaw = orientation[2]
-    #     pose = spline.get_interpolated_pose(t)
-    #     R = RPY2Mat(roll, pitch, yaw)
-    #     print((R))
-    #     print((pose))
-    #     pose_6d = pin.SE3(R, pose)
-    #     draw_frame(ax, pose_6d)
-    #     ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
-    #     t = t + 0.02
-
-
-    # ax.set_xlabel('X')
-    # ax.set_ylabel('Y')
-    # ax.set_zlabel('Z')
-    # ax.set_title("Interpolation position + orientation 3D (RBF)")
-    # ax.legend()
-    # plt.tight_layout()
-    # plt.show()
-
-
-    # traj = []
-    # dt = 0.01
-    # times = np.arange(0, duration + dt, dt)
-    # for t in times:
-    #     pose = spline.interpolate_pose(t)
-    #     traj.append(pose)
-    #     # print("pose:" + str(pose))
-    # traj = np.array(traj)
-    # wp_pos = np.array(positions)
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # ax.plot(traj[:, 0], traj[:, 1], traj[:, 2], label="Trajectoire interpolée", marker=".", color='blue',alpha=0.5)
-    # ax.scatter(wp_pos[:, 0], wp_pos[:, 1], wp_pos[:, 2], label="Waypoints", color='red', s=50)
-    # # ax.plot(x,y,z, label="Pattern generator", marker=".", color='cyan')
-    # ax.set_xlabel('X')
-    # ax.set_ylabel('Y')
-    # ax.set_zlabel('Z')
-    # ax.set_title("Interpolation position 3D (RBF)")
-    # ax.legend()
-    # ax.set_box_aspect([1, 1, 1])
-    # plt.tight_layout()
-    # plt.show()

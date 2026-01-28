@@ -12,9 +12,10 @@ from aligator_mpc.mpcUtils import StagesDefinition
 from pinocchio.visualize import MeshcatVisualizer
 from copy import copy
 import sys
+from ament_index_python.packages import get_package_share_directory
 
 # !! TEMP
-from line_profiler import profile
+# from line_profiler import profile
 from rclpy.impl import rcutils_logger
 
 class MPC():
@@ -23,7 +24,9 @@ class MPC():
         self.waypoints = waypoints
         print(self.parameters)
         # Initialize robot
-        self.robot = ex_robot_data.load(self.parameters.robot.name)
+        # self.robot = ex_robot_data.load(self.parameters.robot.name)
+        self.robot = r = pin.RobotWrapper.BuildFromURDF("src/agimus-demos/agimus_demo_09_glue_spreading/urdf/fr3.urdf",package_dirs=[get_package_share_directory("franka_description")])
+
         self.robot.model = pin.buildReducedModel(self.robot.model, [8,9], pin.neutral(self.robot.model))
         self.robot.data = self.robot.model.createData()
 
@@ -85,7 +88,7 @@ class MPC():
         self.u_min = self.stage_factory.u_min
         self.u_max = self.stage_factory.u_max
 
-    def iterate(self, current_xs, current_us):
+    def iterate(self, current_xs):
         """
         Runs the solver over one iteration
         Args:
@@ -114,13 +117,14 @@ class MPC():
             self.solver.mu_init = self.parameters.mpc.solver.presolve.mu_init
             self.solver.tol = self.parameters.mpc.solver.presolve.tolerance            
         else:
+
             self.solver.max_iters = self.parameters.mpc.solver.running.max_iters
             self.solver.mu_init = self.parameters.mpc.solver.running.mu_init
             self.solver.tol = self.parameters.mpc.solver.running.tolerance
             # cycle the data
-            us   = self.cycleData(self.results.us.tolist(), current_us, "xs")
+            us   = self.cycleData(self.results.us.tolist(), None, None)
             xs   = self.cycleData(self.results.xs.tolist(), current_xs,"xs")
-            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc.nb_steps_horizon - 1 # -1 because the first stage is 0
+            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc.nb_steps_horizon # -1 because the first stage is 0
 
             # cycle the stages
             stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
@@ -202,6 +206,7 @@ class StageFactory():
     def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params):
         self.robot = robot
         self.space = space
+        self.nq = self.robot.model.nq
         self.nv = self.robot.model.nv
         self.nu = self.nv
         self.ndx = self.space.ndx
@@ -226,7 +231,7 @@ class StageFactory():
         self.addOrientationCosts()
         self.addJointsLimitsConstraints()
         self.addTorqueLimitsConstraints()
-        self.addRegulationCosts()
+        self.addRegularisationCosts()
         # self.addAutoCollisionsConstraints()
         self.buildStageModelList()
 
@@ -350,75 +355,89 @@ class StageFactory():
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
         self.stages_definition.constraints.append((residual, constraint))
 
-    def addRegulationCosts(self):
-        wt_x = self.parameters.mpc.weights.running.regulation.joint*np.ones(self.ndx)
-        wt_x[self.nv:] = self.parameters.mpc.weights.running.regulation.vel
-        wt_x = np.diag(wt_x)
-        wt_u = self.parameters.mpc.weights.running.regulation.command*np.eye(self.nu)
+    def addRegularisationCosts(self):
+        ## Running costs
+        # State reg
+        wt_x = np.diag(
+        [self.parameters.mpc.weights.running.regularisation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
+        +
+        [self.parameters.mpc.weights.running.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
 
+        position_ref = [-8.97653063991213e-07
+        ,-0.7808463663675579
+        ,2.2971344285441086e-15
+        ,-2.366688685342141
+        ,-9.726534605596857e-06
+        ,1.5702636943341912
+        ,-0.6913420805230404]
+        vel_ref = [0.]*7
 
-        wt_x_term = self.parameters.mpc.weights.terminal.regulation.joint*np.ones(self.ndx)
-        wt_x_term[self.nv:] = self.parameters.mpc.weights.terminal.regulation.vel
-        wt_x_term = np.diag(wt_x_term)
-        wt_u_term = self.parameters.mpc.weights.terminal.regulation.command*np.eye(self.nu)
+        x_ref = np.array(position_ref + vel_ref)
 
-        # !!!
-        terminal_cost = ("term reg", aligator.QuadraticCost(wt_x_term, wt_u_term ))
-        self.stages_definition.terminal_costs.append(terminal_cost)
+        stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)) for i in range(self.parameters.mpc.n_total_steps)]
 
-        stage_reg_cost = [("reg", aligator.QuadraticCost(wt_x * self.parameters.mpc.dt, wt_u * self.parameters.mpc.dt)) for _ in range(self.parameters.mpc.n_total_steps)]
-        self.stages_definition.stage_dep_costs.append(stage_reg_cost)
+        if(self.parameters.mpc.weights.running.regularisation.vel > 0. or self.parameters.mpc.weights.running.regularisation.joint > 0.):
+            self.stages_definition.stage_dep_costs.append(stage_reg_cost)
+        
+        # Control reg
+        wt_u = self.parameters.mpc.weights.running.regularisation.command*np.eye(self.nu)
+
+        control_reg_cost = [(f"reg_ctrl_{i}", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)) for i in range(self.parameters.mpc.n_total_steps)]
+
+        if(self.parameters.mpc.weights.running.regularisation.command > 0.):
+            self.stages_definition.stage_dep_costs.append(control_reg_cost)
+
+        ## Terminal costs
+        # State reg
+        wt_x_term = np.diag(
+        [self.parameters.mpc.weights.terminal.regularisation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
+        +
+        [self.parameters.mpc.weights.terminal.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
+
+        if(self.parameters.mpc.weights.terminal.regularisation.vel > 0. or self.parameters.mpc.weights.terminal.regularisation.joint > 0.):
+            self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x_term)))
+        
+        # Control reg
+        wt_u_term = self.parameters.mpc.weights.terminal.regularisation.command*np.eye(self.nu)
+
+        if(self.parameters.mpc.weights.terminal.regularisation.command > 0.):
+            self.stages_definition.terminal_costs.append(("reg_ctrl_term", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u_term)))
+
 
     def addWaypointCosts(self):
         """
         For each stage, adds a cost tied to matching the end effector frame to a waypoint frame
         """
         tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
-        waypoint_costs = []
+        frame_vel_cost = []
+        placement_costs = []
         for t in range (self.parameters.mpc.n_total_steps):
-            # cost on the position of the waypoint
-            target_pos, target_vel = self.interpolator(t*self.parameters.mpc.dt)
-            target_pos = target_pos.translation
-            frame_pos_fn = aligator.FrameTranslationResidual(self.ndx, self.nu, self.robot.model, target_pos, tool_id)
-            wt_frame_pos = self.parameters.mpc.weights.running.waypoints.frame_pos * np.eye(frame_pos_fn.nr)
-            cost_pos = (f"frame_pos_{t}", aligator.QuadraticResidualCost(self.space, frame_pos_fn, wt_frame_pos))
-            waypoint_costs.append(cost_pos)
+            pose , target_vel = self.interpolator(t*self.parameters.mpc.dt)
 
+            placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, pose, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name))
+
+            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation * w for w in [1., 1., 5.]] + [self.parameters.mpc.weights.running.waypoints.pose.orientation  * w for w in [1., 1., 1.]])
+            cost = (f"pose_{t}", aligator.QuadraticResidualCost(self.space, placement_residual, wt_frame_pose))
+            placement_costs.append(cost)
+        
             # cost on the velocity of the waypoint
             frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, target_vel, tool_id, pin.WORLD)
-            wt_frame_vel = self.parameters.mpc.weights.running.waypoints.frame_vel * np.eye(frame_vel_fn.nr)
+            wt_frame_vel = np.diag( [self.parameters.mpc.weights.running.waypoints.vel.translation]*3 + [self.parameters.mpc.weights.running.waypoints.vel.orientation]*3)
             cost_vel = (f"frame_vel_{t}", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel))
-            waypoint_costs.append(cost_vel)
+            frame_vel_cost.append(cost_vel)
 
-        self.stages_definition.stage_dep_costs.append(waypoint_costs)
+
+        if(self.parameters.mpc.weights.running.waypoints.pose.translation > 0 or self.parameters.mpc.weights.running.waypoints.pose.orientation > 0):
+            self.stages_definition.stage_dep_costs.append(placement_costs)
+        if(self.parameters.mpc.weights.running.waypoints.vel.translation > 0 or self.parameters.mpc.weights.running.waypoints.vel.orientation > 0):
+            self.stages_definition.stage_dep_costs.append(frame_vel_cost)
 
 
     def addOrientationCosts(self):
         """
         For each stage, adds a cost to align the end effector to the tangent of the trajectory
         """
-        orientation_costs = []
-        for t in range (self.parameters.mpc.n_total_steps):
-            pose , _ = self.interpolator(t*self.parameters.mpc.dt)
-            R = pose.rotation
-            # R = pin.rpy.rpyToMatrix(rpy)
-            # target_orientation = pin.Quaternion(R)
 
-            target_placement = pin.SE3()
-            target_placement.rotation = pose.rotation # pin.rpy.rpyToMatrix(np.array([np.pi, 0.,0.])) #
-
-            placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, target_placement, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)) # [err_pos(3), err_ori(3)]
-
-            # L'entrée est le vecteur 6D du placement_residual. La sortie doit être le vecteur 3D de l'erreur d'orientation.
-            A_selector = np.hstack([np.zeros((3, 3)), np.eye(3)]) # sélectionne la partie rotation (les 3 dernières composantes)
-            b_selector = np.zeros(3) # on veut que l'erreur soit nulle
-
-            # Ce nouveau résidu ne sortira que la partie orientation de l'erreur de pose.
-            orientation_only_residual = aligator.LinearFunctionComposition(placement_residual, A_selector, b_selector)
-
-            cost = (f"orientation_{t}", aligator.QuadraticResidualCost(self.space, orientation_only_residual, self.parameters.mpc.weights.running.waypoints.orientation * np.eye(3)))
-            orientation_costs.append(cost)
-        self.stages_definition.stage_dep_costs.append(orientation_costs)
 
     def addAutoCollisionsConstraints(self):
         """

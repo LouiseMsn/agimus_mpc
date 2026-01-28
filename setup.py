@@ -5,8 +5,8 @@ setup(
     version="1.0",
     packages=['aligator_mpc'],
     install_requires = [
-                        'typed-argument-parser',
-                        'viser'
+                        'viser',
+                        'pydantic'
                         ],
     py_modules=['mpc', 'mpcParameters', 'mpcTrajectoryUtils', '']
 ), 
