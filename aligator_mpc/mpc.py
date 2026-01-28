@@ -231,7 +231,7 @@ class StageFactory():
         self.addOrientationCosts()
         self.addJointsLimitsConstraints()
         self.addTorqueLimitsConstraints()
-        self.addRegulationCosts()
+        self.addRegularisationCosts()
         # self.addAutoCollisionsConstraints()
         self.buildStageModelList()
 
@@ -355,13 +355,13 @@ class StageFactory():
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
         self.stages_definition.constraints.append((residual, constraint))
 
-    def addRegulationCosts(self):
+    def addRegularisationCosts(self):
         ## Running costs
         # State reg
         wt_x = np.diag(
-        [self.parameters.mpc.weights.running.regulation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
+        [self.parameters.mpc.weights.running.regularisation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
         +
-        [self.parameters.mpc.weights.running.regulation.vel * w for w in [20,20,1,1,1,1.,1.]])
+        [self.parameters.mpc.weights.running.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
 
         position_ref = [-8.97653063991213e-07
         ,-0.7808463663675579
@@ -376,31 +376,31 @@ class StageFactory():
 
         stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)) for i in range(self.parameters.mpc.n_total_steps)]
 
-        if(self.parameters.mpc.weights.running.regulation.vel > 0. or self.parameters.mpc.weights.running.regulation.joint > 0.):
+        if(self.parameters.mpc.weights.running.regularisation.vel > 0. or self.parameters.mpc.weights.running.regularisation.joint > 0.):
             self.stages_definition.stage_dep_costs.append(stage_reg_cost)
         
         # Control reg
-        wt_u = self.parameters.mpc.weights.running.regulation.command*np.eye(self.nu)
+        wt_u = self.parameters.mpc.weights.running.regularisation.command*np.eye(self.nu)
 
         control_reg_cost = [(f"reg_ctrl_{i}", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)) for i in range(self.parameters.mpc.n_total_steps)]
 
-        if(self.parameters.mpc.weights.running.regulation.command > 0.):
+        if(self.parameters.mpc.weights.running.regularisation.command > 0.):
             self.stages_definition.stage_dep_costs.append(control_reg_cost)
 
         ## Terminal costs
         # State reg
         wt_x_term = np.diag(
-        [self.parameters.mpc.weights.terminal.regulation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
+        [self.parameters.mpc.weights.terminal.regularisation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
         +
-        [self.parameters.mpc.weights.terminal.regulation.vel * w for w in [20,20,1,1,1,1.,1.]])
+        [self.parameters.mpc.weights.terminal.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
 
-        if(self.parameters.mpc.weights.terminal.regulation.vel > 0. or self.parameters.mpc.weights.terminal.regulation.joint > 0.):
+        if(self.parameters.mpc.weights.terminal.regularisation.vel > 0. or self.parameters.mpc.weights.terminal.regularisation.joint > 0.):
             self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x_term)))
         
         # Control reg
-        wt_u_term = self.parameters.mpc.weights.terminal.regulation.command*np.eye(self.nu)
+        wt_u_term = self.parameters.mpc.weights.terminal.regularisation.command*np.eye(self.nu)
 
-        if(self.parameters.mpc.weights.terminal.regulation.command > 0.):
+        if(self.parameters.mpc.weights.terminal.regularisation.command > 0.):
             self.stages_definition.terminal_costs.append(("reg_ctrl_term", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u_term)))
 
 

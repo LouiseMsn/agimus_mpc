@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from rich import print as richprint
 
 
-class RegulationWeights(BaseModel):
+class RegularisationWeights(BaseModel):
     joint: float
     vel: float
     command: float
@@ -20,11 +20,11 @@ class WaypointWeights(BaseModel):
     vel: WaypointWeights6D
 
 class RunningWeights(BaseModel):
-    regulation: RegulationWeights
+    regularisation: RegularisationWeights
     waypoints: WaypointWeights
 
 class TerminalWeights(BaseModel):
-    regulation: RegulationWeights
+    regularisation: RegularisationWeights
 
 class Weights(BaseModel):
     running: RunningWeights
@@ -115,10 +115,10 @@ class Config(BaseModel):
     #                     f'\t\tMu initialization at 1rst iteration: {self.solver.mu_init_1st_iter}\n'\
     #                     f'\t\tMu at initialization: {self.solver.mu_init}\n'\
     #             f'\nWeights parameters:\n'\
-    #             f'\tRegulations costs:\n'\
-    #                 f'\t\tJoints: {self.mpc.weights.running.regulation.joint}\n'\
-    #                 f'\t\tVelocity: {self.mpc.weights.running.regulation.vel}\n'\
-    #                 f'\t\tCommand: {self.mpc.weights.running.regulation.command}\n'\
+    #             f'\tRegularisations costs:\n'\
+    #                 f'\t\tJoints: {self.mpc.weights.running.regularisation.joint}\n'\
+    #                 f'\t\tVelocity: {self.mpc.weights.running.regularisation.vel}\n'\
+    #                 f'\t\tCommand: {self.mpc.weights.running.regularisation.command}\n'\
     #                 f'\t\tTerminal state: {self.term_state_reg_cost}\n'\
     #             f'\n\tWaypoints:\n'\
     #                 f'\t\tFrame position: {self.mpc.weights.waypoints.frame_pos}\n'\
