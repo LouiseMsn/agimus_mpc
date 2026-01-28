@@ -1,5 +1,3 @@
-import numpy as np
-import aligator
 from pathlib import Path
 import yaml
 from pydantic import BaseModel
@@ -78,13 +76,6 @@ class Config(BaseModel):
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         return cls(**data)
-
-
-
-
-
-
-
 
 
 
