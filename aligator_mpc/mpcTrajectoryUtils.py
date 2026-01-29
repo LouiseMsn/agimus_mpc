@@ -3,8 +3,6 @@ from pinocchio.rpy import rpyToMatrix, matrixToRpy
 import numpy as np
 from pinocchio import SE3
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from scipy.interpolate import interp1d, RBFInterpolator
 import math
 from copy import deepcopy
 
@@ -291,7 +289,6 @@ class PatternGenerator:
 
         return [np.array([x[i],y[i],z[i]]) for i in range(len(x))]
 
-
 class Interpolator:
     def my_log6(self, M : pin.SE3):
         return pin.log6(M)
@@ -350,11 +347,8 @@ class Interpolator:
             current_pt = self.waypoints[i]
             next_pt = self.waypoints[i+1]
             
-            # A = pin.log6(current_pt.actInv(next_pt)) 
-            # B = pin.exp6(alpha * A)
-
-            # linear interpolation
-            
+           # exp6, log6 -> "curved" interpolation
+           # exp3, log3 -> "linear" interpolation
             twist_local = pin.Motion(self.my_log6(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_p     
         
             pose_local = self.my_exp6(twist_local * t) # integrate the twist over t to get the transformation from current point to point(t)
@@ -363,202 +357,6 @@ class Interpolator:
             twist_world = pose_world.act(twist_local)
 
             return (pose_world, twist_world)
-                
-class SplineGenerator:
-    """
-    Class that interpolates the `waypoints` into a spline and calculates the orientation between them so that the X axis faces the nex waypoint and the Z axis faces downward
-    """
-    def __init__(self, start_pos, start_ori, waypoints,
-                 v_start=1.0, v_spread=1.0,
-                 start_kernel='linear', spread_kernel='cubic'):
-        if len(waypoints) < 2:
-            raise ValueError("At least two waypoints are required.")
-
-        self.start_pos = np.array(start_pos)
-        self.start_ori = np.array(start_ori)
-        self.waypoints = np.array(waypoints)
-        self.v_start = v_start
-        self.v_spread = v_spread
-        self.start_kernel = start_kernel
-        self.spread_kernel = spread_kernel
-
-        self.start_traj = None
-        self.spread_traj = None
-        self.last_valid_orientation_ref = np.array([0.0, 0.0, 0.0])
-        self.t_total = 0
-
-        self._compute_and_set_times()
-        self._compute_full_traj()
-        self._compute_full_ori()
-
-    def _compute_and_set_times(self):
-        """
-        Computes the time it will take to execute the start, spread and total trajectories
-        Args:
-            None
-        Returns:
-            None
-        Sets:
-            self.t_start : (float) time from the current pose of the end effector `self.start_pos` to the first waypoint `waypoint[0]` at a `self.v_start` speed
-            self.t_spread : (float) time from the first waypoint to the last at a `self.v_spread` speed
-            self.t_total : (float) time of the complete trajectory
-        """
-        # Distance for first segment
-        d_start = np.linalg.norm(self.waypoints[0] - self.start_pos)
-        t_start = d_start / self.v_start
-
-        # Distances for the spread segment
-        d_spread = np.sum([
-            np.linalg.norm(self.waypoints[i+1] - self.waypoints[i])
-            for i in range(len(self.waypoints) - 1)
-        ])
-
-        t_spread = d_spread / self.v_spread
-
-        # Save time partitions
-        self.t_start = t_start
-        self.t_total = t_start + t_spread
-
-        # Create time arrays for both segments
-        self.time_start = np.array([0.0, self.t_start])[:, None]
-        self.time_spread = np.linspace(self.t_start, self.t_total, len(self.waypoints))[:, None]
-
-    def _compute_start_trj(self):
-        """
-        Initiates the interpolator for the trajectory between the start pose and the first waypoint
-
-        Args:
-            None
-        Returns:
-            None
-        Sets:
-            self.start_traj (RBFInterpolator)
-        """
-        points = np.vstack([self.start_pos, self.waypoints[0]])
-        self.start_traj = RBFInterpolator(self.time_start, points, kernel=self.start_kernel)
-
-    def _compute_spread_traj(self):
-        """
-        Initiates the interpolator for the trajectory between the first waypoint and the last
-
-        Args:
-            None
-        Returns:
-            None
-        Sets:
-            self.spread_traj (RBFInterpolator)
-        """
-        points = self.waypoints[0:]
-        self.spread_traj = RBFInterpolator(self.time_spread, points, kernel=self.spread_kernel)
-
-    def _compute_full_traj(self):
-        """
-        Initiates the interpolators for the trajectory between the start pose and the first waypoint and between the first waypoint and the last.
-
-        Args:
-            None
-        Returns:
-            None
-        Sets:
-            self.start_traj : (RBFInterpolator) interpolator for the pose of the start trajectory
-            self.spread_traj : (RBFInterpolator) interpolator for the pose of the spread trajectory
-        """
-        self._compute_start_trj()
-        self._compute_spread_traj()
-
-    def get_interpolated_pose(self, t):
-        """
-        Returns the pose of the end effector at a given `t` (secs)
-        Args:
-            t : time in seconds (float)
-        Returns:
-            pose : (list[float]) pose of end effector for t
-        Sets:
-            None
-        """
-        t = np.clip(t, 0.0, self.t_total)
-        if t <= self.t_start:
-            return self.start_traj(np.array([[t]]))[0]
-        else:
-            return self.spread_traj(np.array([[t]]))[0]
-
-    def _compute_start_orientation(self, spread_orientations):
-        """
-        Instanciates the interpolator from the start orientation to the orientation of the first pattern waypoint
-        Args:
-            spread_orientations : list of the orientations for the spreading part of the trajectory
-        Returns:
-            None
-        Sets:
-            start_ori_traj : (RBFInterpolator) interpolator for the orientation of the start trajectory
-        """
-        orientations = np.vstack((self.start_ori, spread_orientations[0]))
-        self.start_ori_traj = RBFInterpolator(self.time_start, orientations, kernel=self.start_kernel)
-
-    def _compute_spread_orientation(self):
-        """
-        Computes the orientation of the end effector waypoint by waypoint so that the X axis points to the next waypoint and the Z axis points down.
-        Also initializes the interpolator between the first waypoint to the last.
-        Args:
-            None
-        Returns:
-            spread_orientations : (list[float]) list of orientations for the spread part of the trajectory
-        Sets:
-            start_ori_traj : (RBFInterpolator) interpolator for the orientation of the spread trajectory
-        """
-        points = self.waypoints[0:]
-        spread_orientations = []
-        for i in range(len(points)-1):
-            spread_orientations.append(self._compute_local_orientation(points[i], points[i+1]))
-        spread_orientations.append(spread_orientations[-1]) # repeat last orientation to match the number of waypoints
-        self.spread_ori_traj = RBFInterpolator(self.time_spread, spread_orientations, kernel=self.spread_kernel)
-        return spread_orientations
-
-    def _compute_local_orientation(self, current_point, next_point):
-        """
-        Computes the orientation between two points so that the X axis points from the `current_point` to the `next_point` and the Z axis points down
-        Args:
-            None
-        Returns:
-            orientation : (list[float]) Roll Pitch Yaw orientation of the effector
-        Sets:
-            None
-        """
-        direction_vector = next_point - current_point
-        roll = np.pi
-        pitch = 0
-        yaw = np.arctan2(direction_vector[1], direction_vector[0])
-        orientation = np.array([roll, pitch, yaw])
-        return orientation
-
-    def _compute_full_ori(self):
-        """
-        Computes the orientation for the full trajectory
-        Args:
-            None
-        Returns:
-            None
-        Sets:
-            None
-        """
-        spread_ori = self._compute_spread_orientation()
-        self._compute_start_orientation(spread_ori)
-
-    def get_interpolated_ori(self,t):
-        """
-        Returns the orientation of the end effector at a given `t` (secs)
-        Args:
-            t : time in seconds (float)
-        Returns:
-            orientation : (list[float]) Roll Pitch Yaw of the end effector
-        Sets:
-            None
-        """
-        t = np.clip(t, 0.0, self.t_total)
-        if t <= self.t_start:
-            return self.start_ori_traj(np.array([[t]]))[0]
-        else:
-            return self.spread_ori_traj(np.array([[t]]))[0]
 
 class TestTrajs:
     # "struct" class used to regroup test trajectory generators
@@ -600,35 +398,6 @@ class TestTrajs:
         points = add_orientation(trajectory, None)
         return points
 
-        # amplitude * sin(period*(x-length_offset)) + height_offset
-
-def RPY2Mat(roll,pitch,yaw):
-    """
-    Converts a rotation in roll pitch yaw to a rotation matrix. # TODO Pin function?
-    Args:
-        roll, pitch, yaw : (float)
-    Returns:
-        R : (np.array 3x3) Rotation matrix
-    """
-
-    Rz = np.array([
-                [np.cos(yaw), -np.sin(yaw), 0],
-                [np.sin(yaw), np.cos(yaw), 0],
-                [0, 0, 1]
-            ])
-    Ry = np.array([
-                [np.cos(pitch), 0, np.sin(pitch)],
-                [0, 1, 0],
-                [-np.sin(pitch), 0, np.cos(pitch)]
-            ])
-    Rx = np.array([
-                [1, 0, 0],
-                [0, np.cos(roll), -np.sin(roll)],
-                [0, np.sin(roll), np.cos(roll)]
-            ])
-    R = Rz @ Ry @ Rx
-    return R
-
 def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
     """
     Draws 3 arrows in the `ax` plot showing XYZ pose and RPY rotation.
@@ -659,7 +428,6 @@ def add_orientation(positions, orientation):
         point = pin.SE3(ori, positions[i])
         points.append(point)
     return points
-
 
 def computeMatrixOrientation(current_point, next_point):
     direction_vector = next_point - current_point
@@ -692,7 +460,7 @@ if __name__=="__main__":
         pitch = orientation[1]
         yaw = orientation[2]
         pose = positions[i].translation
-        R = RPY2Mat(roll, pitch, yaw)
+        R = rpyToMatrix(roll, pitch, yaw)
         print((R))
         print((pose))
         pose_6d = pin.SE3(R, pose)
@@ -720,7 +488,7 @@ if __name__=="__main__":
         pitch = orientation[1]
         yaw = orientation[2]
         pose = point.translation
-        R = RPY2Mat(roll, pitch, yaw)
+        R = rpyToMatrix(roll, pitch, yaw)
         print((R))
         print((pose))
         pose_6d = pin.SE3(R, pose)

@@ -3,7 +3,6 @@ import yaml
 from pydantic import BaseModel
 from rich import print as richprint
 
-
 class RegularisationWeights(BaseModel):
     joint: float
     vel: float
@@ -43,19 +42,23 @@ class Solver(BaseModel):
     num_threads: int
     verbose : str
 
+class RegularisationRef(BaseModel):
+    joint_pos: list
+    joint_vel: list
+
 class MPC(BaseModel):
     dt: float
     total_time: int
     nb_steps_horizon: int
     solver: Solver
     weights: Weights
+    regularisation_ref: RegularisationRef
 
     @property
     def n_total_steps(self):
         if self.total_time is None or self.dt is None:
             raise ValueError("Value of total_time or dt parameter is incorrect")
         return int(self.total_time / self.dt)
-
 
 class Robot(BaseModel):
     name: str
@@ -64,7 +67,6 @@ class Robot(BaseModel):
 
 class Trajectory(BaseModel):
     vel: float
-
 
 class Config(BaseModel):
     robot: Robot
@@ -77,10 +79,8 @@ class Config(BaseModel):
             data = yaml.safe_load(f)
         return cls(**data)
 
-
 if __name__=="__main__":
     path = Path("config/mpc_config.yaml")
     params_test = Config.from_yaml(path)
 
     richprint(params_test)
-

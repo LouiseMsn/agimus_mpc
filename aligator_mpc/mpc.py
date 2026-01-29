@@ -1,31 +1,24 @@
 from aligator_mpc.mpcTrajectoryUtils import Interpolator
-
 import aligator
 from aligator import constraints, manifolds, dynamics
-import example_robot_data as ex_robot_data
 import pinocchio as pin
 import numpy as np
 from typing import List
 import time
-import math
 from aligator_mpc.mpcUtils import StagesDefinition
-from pinocchio.visualize import MeshcatVisualizer
-from copy import copy
-import sys
+
 from ament_index_python.packages import get_package_share_directory
 
-# !! TEMP
-# from line_profiler import profile
+
 from rclpy.impl import rcutils_logger
 
 class MPC():
-    def __init__(self, waypoints, parameters):
+    def __init__(self, waypoints, parameters) -> None:
         self.parameters = parameters
         self.waypoints = waypoints
         print(self.parameters)
         # Initialize robot
-        # self.robot = ex_robot_data.load(self.parameters.robot.name)
-        self.robot = r = pin.RobotWrapper.BuildFromURDF("src/agimus-demos/agimus_demo_09_glue_spreading/urdf/fr3.urdf",package_dirs=[get_package_share_directory("franka_description")])
+        self.robot = pin.RobotWrapper.BuildFromURDF("src/agimus-demos/agimus_demo_09_glue_spreading/urdf/fr3.urdf",package_dirs=[get_package_share_directory("franka_description")])
 
         self.robot.model = pin.buildReducedModel(self.robot.model, [8,9], pin.neutral(self.robot.model))
         self.robot.data = self.robot.model.createData()
@@ -35,12 +28,12 @@ class MPC():
         self.world_frame_id = self.robot.model.getFrameId(self.parameters.robot.world_frame_name)
         self.world_joint_id = self.robot.model.frames[self.world_frame_id].parentJoint
 
-        self.n_dx = self.space.ndx # size of state vector
-        self.n_q = self.robot.model.nq # size of joint state vector
-        self.n_v = self.robot.model.nv # size of speed vector
-        self.nu = self.n_v
+        self.ndx = self.space.ndx # size of state vector
+        self.nq = self.robot.model.nq # size of joint state vector
+        self.nv = self.robot.model.nv # size of speed vector
+        self.nu = self.nv
         self.x0 = self.space.neutral() # initial robot state
-        self.q0 = self.x0[:self.n_q] # initial joints state
+        self.q0 = self.x0[:self.nq] # initial joints state
 
         
         pin.forwardKinematics(self.robot.model, self.robot.data, self.q0)
@@ -55,11 +48,14 @@ class MPC():
         self.problem = None
         self.solver_stage_number = 0
 
-    def instantiateSolver(self):
+    def instantiateSolver(self) -> tuple[aligator.SolverProxDDP, aligator.HistoryCallback]:
+        """Creates the `SolverProxDDP solver` object and assigns its rollout type, sa strategy, linear solver choice and if using parallel aligator the number of threads.
+
+        Returns:
+            solver (aligator.SolverProxDDP)
+            callback (aligator.HistoryCallback) 
         """
-        Creates the `SolverProxDDP solver` object and assigns its rollout type, sa strategy, linear solver choice and if using parallel aligator the number of threads.
-        Sets the `self.callback` and `self.solver` object.
-        """
+
         solver = aligator.SolverProxDDP(self.parameters.mpc.solver.presolve.tolerance, self.parameters.mpc.solver.presolve.mu_init, max_iters=self.parameters.mpc.solver.presolve.max_iters, verbose=eval(self.parameters.mpc.solver.verbose))
         solver.rollout_type = eval(self.parameters.mpc.solver.rollout_type)
         solver.sa_strategy = eval(self.parameters.mpc.solver.sa_strategy)
@@ -71,24 +67,33 @@ class MPC():
 
         return solver, callback
     
-    def setStartPose(self, start_pose):
-        if len(start_pose)!=self.n_q:
-            raise AssertionError(f"Pose has the wrong number of elements: is {len(start_pose)} but should be {self.n_q}")
-        self.x0[:self.n_q] = start_pose
+    def setStartPose(self, start_pose) -> None:
+        """ Updates the pinocchio frames to the starting pose
+
+        Args:
+            start_pose (List[float]): starting pose of the robot
+
+        Raises:
+            AssertionError: If the starting pose is not of length nq
+        """
+
+        if len(start_pose)!=self.nq:
+            raise AssertionError(f"Pose has the wrong number of elements: is {len(start_pose)} but should be {self.nq}")
+        self.x0[:self.nq] = start_pose
         pin.forwardKinematics(self.robot.model, self.robot.data, start_pose)
         pin.updateFramePlacements(self.robot.model, self.robot.data) # update model placemement
 
-    def initStages(self):
+    def initStages(self) -> None:
+        """ Initializes the stage_factory object and the u_min and u_max variables
         """
-        Initializes the stage_factory object
-        """
+
         self.stage_factory = StageFactory(self.robot, self.space, self.parameters.mpc.n_total_steps, self.discrete_dynamics, self.waypoints, self.parameters)
 
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
         self.u_max = self.stage_factory.u_max
 
-    def iterate(self, current_xs):
+    def iterate(self, current_xs) -> float:
         """
         Runs the solver over one iteration
         Args:
@@ -100,11 +105,10 @@ class MPC():
         if self.stage_factory is None:
             raise ValueError('The stage factory has not been instanciated, use setStartPose to set a start pose and instanciate the stage factory')
 
-        # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'stage number { self.solver_stage_number}')
 
         if self.solver_stage_number == 0:
             # create the data
-            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.n_v)) for _ in range(self.parameters.mpc.nb_steps_horizon)]
+            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.nv)) for _ in range(self.parameters.mpc.nb_steps_horizon)]
             xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
 
             # create the stages & problem
@@ -135,75 +139,115 @@ class MPC():
             self.problem.x0_init = current_xs
             self.solver.cycleProblem(self.problem, stage_data)
 
-            # self.solver.setup(self.problem)
-
         self.results, solver_calc_time = self.run_solver(self.problem, us=us, xs=xs)
-
         self.solver_stage_number += 1
 
         return solver_calc_time
 
-    def run_solver(self, problem, *, us, xs, lams=None, vs=None):
+    def run_solver(self, problem, *, us, xs) -> tuple[aligator.Results, float]:
         """
-        Runs the solver
+        Runs the solver with xs and us warmstart
+
+        Args:
+            problem (aligator.TrajOptProblem): aligator problem
+            us (List[float]): warmstart on command
+            xs (List[float]): warmstart on state
+
+        Returns:
+            results (aligator.Results): results of the solvers' iteration
+            timer (float) : solver calculation time
         """
+
         start = time.time()
-        self.solver.run(problem, xs, us) # remove warmstart
+        self.solver.run(problem, xs, us)
         end = time.time()
         results = self.solver.results
         timer = end - start
 
         return results, timer
 
-    def calcDiscreteDynamics(self):
+    def calcDiscreteDynamics(self) -> aligator.dynamics.IntegratorSemiImplEuler:
+        """Initializes the discrete dynamic of the system
+
+        Returns:
+            dynamic_model (aligator.dynamics.IntegratorSemiImplEuler)
         """
-        Initializes the discrete dynamic of the system.
-        """
+
         nu = self.robot.model.nv
         B_mat = np.eye(nu)
         ode = dynamics.MultibodyFreeFwdDynamics(self.space, B_mat) # Ordinatry Diff Equation: resolution de l'équation de la dynamique
-        return dynamics.IntegratorSemiImplEuler(ode, self.parameters.mpc.dt)
+        dynamic_model = dynamics.IntegratorSemiImplEuler(ode, self.parameters.mpc.dt)
+        return dynamic_model
 
-    def computeQuasistatic(self, model: pin.Model, x0, a):
-        """
-        Initializes individual us values.
-        """
-        data = model.createData()
-        q0 = x0[:self.n_q]
-        v0 = x0[self.n_q : self.n_q + self.n_v]
+    def computeQuasistatic(self, robot_model: pin.Model, x0, a) -> list[float]:
+        """Initializes individual us values 
 
-        return pin.rnea(model, data, q0, v0, a)
+        Args:
+            robot_model (pin.Model): robot model
+            x0 (List[float]): starting state
+            a (np.arrray): joint acceleration vector
 
-    def cycleData(self, list:List, current_xs:List, type:str)-> List:
+        Returns:
+           joint torque List[float]
         """
-        Used during mpc iteration, thrashes the first item of the list and adds a copy of the last item to its end
+
+        data = robot_model.createData()
+        q0 = x0[:self.nq]
+        v0 = x0[self.nq : self.nq + self.nv]
+        joint_torque = pin.rnea(robot_model, data, q0, v0, a) # inverse dynamics given q, v and a
+        return joint_torque
+
+    def cycleData(self, list:List, current_x:List, type:str)-> List:
+        """Used during mpc iteration, thrashes the first item of the list and adds a copy of the last item to its end.
+        \If type is xs then return[0] is overwritten to current_x
+
+        Args:
+            list (List): list to cycle
+            current_x (List): state to overwritte to return[0]
+            type (str): type of the list
+
+        Returns:
+            list(List): cycled list
         """
+
         list = list[1:]
         list.append(list[-1])
         if type =="xs":
-            list[0] = current_xs
+            list[0] = current_x
         
         return list
 
-    def get_endpoint_traj(self, xs: List[np.ndarray]):
+    def get_endpoint_traj(self, states: List[np.ndarray]) -> np.array:
+        """Gets the trajectory of the end effector for a list of states
+
+        Args:
+            states (List[np.ndarray]): list of states
+
+        Returns:
+            np.array: list of end effector positions
         """
-        Gets the trajectory of the effector for a state list
-        """
+
         pts = []
-        for i in range(len(xs)):
-            pts.append(self.get_endpoint(xs[i][: self.n_q]))
+        for i in range(len(states)):
+            pts.append(self.get_endpoint(states[i][: self.nq]))
         return np.array(pts)
 
-    def get_endpoint(self, q: np.ndarray):
-        """
-        Gets the effector pose for a joint configuration q
-        """
-        pin.framesForwardKinematics(self.robot.model, self.robot.data, q)
-        return self.robot.data.oMf[self.tool_id].translation.copy()
+    def get_endpoint(self, q: np.ndarray) -> list[float]:
+        """Gets the effector pose for a joint configuration q
 
+        Args:
+            q (np.ndarray): joint configuration
+
+        Returns:
+            list : position of the end effector
+        """
+
+        pin.framesForwardKinematics(self.robot.model, self.robot.data, q)
+        ee_pos = self.robot.data.oMf[self.tool_id].translation.copy()
+        return ee_pos
 
 class StageFactory():
-    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params):
+    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params) -> None:
         self.robot = robot
         self.space = space
         self.nq = self.robot.model.nq
@@ -214,10 +258,8 @@ class StageFactory():
         self.u_min = -self.u_max
         self.discrete_dynamics = discrete_dynamics
         self.n_steps = n_steps
-
         self.parameters = params
 
-        # self.stages_definition: dict[str,list[tuple|list]] = {"constraints":[], "terminal costs":[], "stage dependant costs":[], "stage independant costs":[]} # Constraints are not stage-dependant
         self.stages_definition = StagesDefinition()
         self.stages : list[aligator.stageModel] = []
         self.stage_model_list = []
@@ -228,39 +270,49 @@ class StageFactory():
         self.interpolator = self.getInterpolator()
 
         self.addWaypointCosts()
-        self.addOrientationCosts()
         self.addJointsLimitsConstraints()
         self.addTorqueLimitsConstraints()
         self.addRegularisationCosts()
         # self.addAutoCollisionsConstraints()
         self.buildStageModelList()
 
-    def getInterpolator(self):
+    def getInterpolator(self) -> Interpolator:
+        """Builds and returns the interpolator object
+
+        Returns:
+            Interpolator: waypoint interpolator
+        """
+
         tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
         start_pos = self.robot.data.oMf[tool_id]        
         self.waypoints = [start_pos] + self.waypoints
         rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start {pin.rpy.matrixToRpy(start_pos.rotation)} { start_pos.translation}')
         return Interpolator(self.waypoints, self.parameters.trajectory.vel)
 
-    def getStageModel(self, stage_number):
-        """Returns the stage model for the _stage_number_ th stage
+    def getStageModel(self, stage_number:int) -> aligator.StageModel :
+        """Returns the stage model for the `stage_number` th stage
 
         Args:
-            stage_number (int): _description_
+            stage_number (int): index of the stage to get
+        Returns:
+            aligator.StageModel : stage model
         """
+
         if len(self.stage_model_list ) == 0:
             raise ValueError("The stage model list is not built, run buildStageModelList() before running getStageModel()")
         else:
             if stage_number >= self.parameters.mpc.n_total_steps :
-                # rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info('fin de trajectoire')
                 return self.stage_model_list[-1]
             else:
                 return self.stage_model_list[stage_number]
         
-    def buildStageModelList(self):
+    def buildStageModelList(self) -> aligator.StageModel:
+        """Builds and returns the StageModel for the `stage_number` th stage of the problem.
+
+        Returns:
+            List[aligator.StageModel]: list of stage models 
         """
-        Builds and returns the StageModel for the `stage_number` th stage of the problem.
-        """
+
         for stage_number in range(self.parameters.mpc.n_total_steps):
         
             stage_coststack = aligator.CostStack(self.space, self.nu)
@@ -273,33 +325,41 @@ class StageFactory():
                 stage_model.addConstraint(*constraint)
             self.stage_model_list.append(stage_model)
         
-        
         return stage_model
 
-    def getTerminalCoststack(self, stage_number):
-        """"
-        Returns the terminal coststack calculated from the `stages_definitions` dict.
+    def getTerminalCoststack(self, stage_number:int) -> aligator.CostStack:
+        """Returns the terminal coststack calculated from the `stages_definitions` dict.
+
+        Args:
+            stage_number (int): index of the stage
+
+        Returns:
+            aligator.CostStack: terminal coststack
         """
+
         terminal_coststack = aligator.CostStack(self.space, self.nu)
         cost_list = self.getDynamicCosts(stage_number, self.stages_definition.terminal_costs)
         for cost in cost_list:
             terminal_coststack.addCost(*cost)
-        #!! TODO: add terminal constraintStack
-
-        # for terminal_cost in self.stages_definition.terminal_costs:
-        #     terminal_coststack.addCost(*terminal_cost)
 
         return terminal_coststack
 
-    def fabricateStages(self, current_stage, duration):
-        """
-        Builds the stages from `current_stage` to `duration` using the costs stored in `self.stages_definition`
+    def fabricateStages(self, current_stage:int, duration:int) -> tuple[list, aligator.CostStack]:
+        """Builds the stages from `current_stage` to `duration` using the costs stored in `self.stages_definition`
+
+        Args:
+            current_stage (int): index of the current stage
+            duration (_int): duration (in number of indexes)
+
+        Returns:
+            List[aligator.StageModel] : list of stages model from index to (index + duration - 1)
+            aligator.CostStack : terminal coststack
         """
 
         terminal_coststack = aligator.CostStack(self.space, self.nu)
         for terminal_cost in self.stages_definition.terminal_costs:
             terminal_coststack.addCost(*terminal_cost)
-        # terminal_coststack = 0
+
         stages = []
         for stage_num in range(current_stage, duration + current_stage):
             stage_coststack = aligator.CostStack(self.space, self.nu)
@@ -319,11 +379,10 @@ class StageFactory():
     # Cost & Constraints functions
     # ==========================================================================
     def addJointsLimitsConstraints(self) -> None:
+        """Adds joints limits constraints (joint_angle_residual, box_constraint) to self.stages_definition.constraints
         """
-        Adds joints limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
-        """
-        # Résidu de base qui extrait simplement l'état x.
-        # C'est f(x) = x - 0, donc il renvoie x.
+
+        # Base residual that extracts the state (f(x) = x - 0)
         identity_residual = aligator.StateErrorResidual(self.space, self.nu, self.space.neutral())
 
         for j_idx, jn in enumerate(self.robot.model.names[1:]):
@@ -344,9 +403,8 @@ class StageFactory():
             constraint = (joint_angle_residual, box_constraint)
             self.stages_definition.constraints.append(constraint)
 
-    def addTorqueLimitsConstraints(self):
-        """
-        Adds torque limits constraints (joint_angle_residual, box_constraint) to self.stages_definition["constraints"]
+    def addTorqueLimitsConstraints(self) -> None :
+        """Adds torque limits constraints (joint_angle_residual, box_constraint) to self.stages_definition.constraints
         """
         nv = self.robot.model.nv
         nu = nv
@@ -355,7 +413,9 @@ class StageFactory():
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
         self.stages_definition.constraints.append((residual, constraint))
 
-    def addRegularisationCosts(self):
+    def addRegularisationCosts(self) -> None:
+        """Adds regulation costs to self.stages_definition.stage_dep_costs
+        """
         ## Running costs
         # State reg
         wt_x = np.diag(
@@ -363,14 +423,8 @@ class StageFactory():
         +
         [self.parameters.mpc.weights.running.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
 
-        position_ref = [-8.97653063991213e-07
-        ,-0.7808463663675579
-        ,2.2971344285441086e-15
-        ,-2.366688685342141
-        ,-9.726534605596857e-06
-        ,1.5702636943341912
-        ,-0.6913420805230404]
-        vel_ref = [0.]*7
+        position_ref = self.parameters.mpc.regularisation_ref.joint_pos
+        vel_ref = self.parameters.mpc.regularisation_ref.joint_vel
 
         x_ref = np.array(position_ref + vel_ref)
 
@@ -403,10 +457,8 @@ class StageFactory():
         if(self.parameters.mpc.weights.terminal.regularisation.command > 0.):
             self.stages_definition.terminal_costs.append(("reg_ctrl_term", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u_term)))
 
-
-    def addWaypointCosts(self):
-        """
-        For each stage, adds a cost tied to matching the end effector frame to a waypoint frame
+    def addWaypointCosts(self) -> None:
+        """For each stage adds a cost tied to matching the end effector frame to a waypoint frame and a cost tied to matching the frame velocity
         """
         tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
         frame_vel_cost = []
@@ -416,7 +468,7 @@ class StageFactory():
 
             placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, pose, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name))
 
-            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation * w for w in [1., 1., 5.]] + [self.parameters.mpc.weights.running.waypoints.pose.orientation  * w for w in [1., 1., 1.]])
+            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation]*3 + [self.parameters.mpc.weights.running.waypoints.pose.orientation]*3)
             cost = (f"pose_{t}", aligator.QuadraticResidualCost(self.space, placement_residual, wt_frame_pose))
             placement_costs.append(cost)
         
@@ -432,20 +484,12 @@ class StageFactory():
         if(self.parameters.mpc.weights.running.waypoints.vel.translation > 0 or self.parameters.mpc.weights.running.waypoints.vel.orientation > 0):
             self.stages_definition.stage_dep_costs.append(frame_vel_cost)
 
-
-    def addOrientationCosts(self):
+    def addAutoCollisionsConstraints(self) -> None:
         """
-        For each stage, adds a cost to align the end effector to the tangent of the trajectory
-        """
-
-
-    def addAutoCollisionsConstraints(self):
-        """
-        Adds a cost in `self.stages_definition["stage dependant costs"]` linked to self collisions of the robot (based on the collision pairs defined in the SRDF loaded by `example-robot-data`).
-        WIP for now
+        Adds a cost in `self.stages_definition.constraints` linked to self collisions of the robot.
+        \n Work in progress
         """
 
-        #! test
         pairs_2_add = [23,35]
         for i in pairs_2_add:
             collision_residual = aligator.FrameCollisionResidual(self.ndx, self.nu, self.robot.model, self.robot.collision_model, i)
@@ -459,43 +503,29 @@ class StageFactory():
     # Utils
     # ==========================================================================
 
-    def getDynamicCosts(self, stage_number, master_cost_list):
-        """
-        Returns a list of costs for the current stage. If a cost is not defined for a given `stage_number`, the last instance of this cost is returned instead.
+    def getDynamicCosts(self, stage_number:int, master_cost_list:list) -> list:
+        """Returns a list of costs for the current stage. If a cost is not defined for a given `stage_number`, the last instance of this cost is returned instead.
+
+        Args:
+            stage_number (int): index of the stage's cost
+            master_cost_list (list): list where all the costs are stored
+
+        Returns:
+            list: list of costs to apply during stage_number
         """
         return_costs_list = []
-        for cost_list in master_cost_list : #self.stages_definition.stage_dep_costs:
+        for cost_list in master_cost_list : 
             if stage_number < len(cost_list):
                 return_costs_list.append(cost_list[stage_number])
             else:
                 return_costs_list.append(cost_list[-1])
         return return_costs_list
 
-    def getStagesDefinition(self):
-        return self.stages_definition
+    def getFullTrajectory_pt_by_pt(self) -> list:  # TODO : move to pattern generator?
+        """Return the full trajectory formatted as np.array([x0,y0,z0], [x1,y1,z1], ...)
 
-    def getStagesList(self): #! remove?
-        return self.stages
-
-    # def getFullTrajectory(self): # TODO : move to pattern generator?
-    #     """
-    #     Returns the full trajectory formatted as a np.array([np.array([x0,x1,..]), np.array([y0,y1,..]), np.array([z0,z1,..])])
-    #     """
-    #     target = self.spline.get_interpolated_pose(0)
-    #     traj_x = np.array([float(target[0])])
-    #     traj_y = np.array([float(target[1])])
-    #     traj_z = np.array([float(target[2])])
-    #     for i in range(self.n_steps):
-    #         target = self.spline.get_interpolated_pose(i*self.parameters.mpc.dt)
-    #         traj_x = np.append(traj_x, float(target[0]))
-    #         traj_y = np.append(traj_y, float(target[1]))
-    #         traj_z = np.append(traj_z, float(target[2]))
-    #     traj = np.array([traj_x, traj_y, traj_z])
-    #     return traj
-
-    def getFullTrajectory_pt_by_pt(self): # TODO : move to pattern generator?
-        """
-        Return the full trajectory formatted as np.array([x0,y0,z0], [x1,y1,z1], ...)
+        Returns:
+            list: list of points
         """
         traj = []
         for i in range(self.parameters.mpc.n_total_steps):
