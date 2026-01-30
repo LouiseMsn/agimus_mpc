@@ -1,3 +1,4 @@
+from aligator_mpc.mpcParameters import Config
 from aligator_mpc.mpcTrajectoryUtils import Interpolator
 import aligator
 from aligator import constraints, manifolds, dynamics
@@ -13,13 +14,13 @@ from ament_index_python.packages import get_package_share_directory
 from rclpy.impl import rcutils_logger
 
 class MPC():
-    def __init__(self, waypoints, parameters) -> None:
+    def __init__(self, waypoints : list, parameters : Config, robot_urdf : str) -> None:
         self.parameters = parameters
         self.waypoints = waypoints
         print(self.parameters)
         # Initialize robot
-        self.robot = pin.RobotWrapper.BuildFromURDF("src/agimus-demos/agimus_demo_09_glue_spreading/urdf/fr3.urdf",package_dirs=[get_package_share_directory("franka_description")])
-
+        model = pin.buildModelFromXML(robot_urdf)
+        self.robot = pin.RobotWrapper(model)
         self.robot.model = pin.buildReducedModel(self.robot.model, [8,9], pin.neutral(self.robot.model))
         self.robot.data = self.robot.model.createData()
 
