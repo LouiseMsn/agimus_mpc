@@ -64,6 +64,7 @@ class Robot(BaseModel):
     name: str
     world_frame_name: str
     tool_frame_name: str
+    joints_to_fix: list
 
 class Trajectory(BaseModel):
     vel: float
