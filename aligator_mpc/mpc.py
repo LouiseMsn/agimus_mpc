@@ -1,5 +1,6 @@
 from aligator_mpc.mpcParameters import Config
 from aligator_mpc.mpcTrajectoryUtils import Interpolator
+from aligator_mpc.mpcUtils import getIndexesFromJointNames
 import aligator
 from aligator import constraints, manifolds, dynamics
 import pinocchio as pin
@@ -21,8 +22,8 @@ class MPC():
         # Initialize robot
         model = pin.buildModelFromXML(robot_urdf)
         self.robot = pin.RobotWrapper(model)
-        self.robot.model = pin.buildReducedModel(self.robot.model, [8,9], pin.neutral(self.robot.model))
-        self.robot.data = self.robot.model.createData()
+        self.robot.model = pin.buildReducedModel(self.robot.model, getIndexesFromJointNames(self.robot, self.parameters.robot.joints_to_fix), pin.neutral(self.robot.model))
+        self.robot.data = self.robot.model.createData()        
 
         self.space = self.space = manifolds.MultibodyPhaseSpace(self.robot.model)
         self.tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
@@ -260,6 +261,7 @@ class StageFactory():
         self.discrete_dynamics = discrete_dynamics
         self.n_steps = n_steps
         self.parameters = params
+        self.tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
 
         self.stages_definition = StagesDefinition()
         self.stages : list[aligator.stageModel] = []
@@ -283,9 +285,7 @@ class StageFactory():
         Returns:
             Interpolator: waypoint interpolator
         """
-
-        tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
-        start_pos = self.robot.data.oMf[tool_id]        
+        start_pos = self.robot.data.oMf[self.tool_id]        
         self.waypoints = [start_pos] + self.waypoints
         rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start {pin.rpy.matrixToRpy(start_pos.rotation)} { start_pos.translation}')
         return Interpolator(self.waypoints, self.parameters.trajectory.vel)
@@ -474,7 +474,7 @@ class StageFactory():
             placement_costs.append(cost)
         
             # cost on the velocity of the waypoint
-            frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, target_vel, tool_id, pin.WORLD)
+            frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, target_vel, self.tool_id, pin.WORLD)
             wt_frame_vel = np.diag( [self.parameters.mpc.weights.running.waypoints.vel.translation]*3 + [self.parameters.mpc.weights.running.waypoints.vel.orientation]*3)
             cost_vel = (f"frame_vel_{t}", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel))
             frame_vel_cost.append(cost_vel)
