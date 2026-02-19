@@ -45,7 +45,7 @@ export OMP_NUM_THREADS
 Defines the places where the worker threads can be put.  
 You can set the places to be threads or cores with :  
 ```bash
-export OMP_PLACES="thread(n)" # The places available will be the nth first consecutive threads.
+export OMP_PLACES="threads(n)" # The places available will be the nth first consecutive threads.
 ```
 
 So if you do `export OMP_PLACES="threads(6)` you will see at launch `OMP_PLACES = '{0},{1},{2},{3},{4},{5}'` that lists the first 6 threads where the worker threads can be placed.  
