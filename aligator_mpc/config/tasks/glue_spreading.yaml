@@ -1,4 +1,4 @@
-task_n:
+task:
   name: "glue_spreading"
   # ========================================================================
   # Trajectory Configuration

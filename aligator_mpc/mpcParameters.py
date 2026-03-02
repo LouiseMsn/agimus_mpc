@@ -14,9 +14,9 @@ from typing import Union, Literal, Annotated
 class RobotConfig(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    name: str = Field(default="UnknownRobot")
-    world_frame_name: str = Field(default="Unknown")
-    tool_frame_name: str = Field(default="Unknown")
+    name: str
+    world_frame_name: str
+    tool_frame_name: str
     joints_to_fix: List[str] = Field(default_factory=list)
     
     n_dof: Optional[int] = None
@@ -44,6 +44,12 @@ class RobotConfig(BaseModel):
         if "robot" in data:
             data = data["robot"]
         robot_config = cls(**data)
+        if robot_config.name == None:
+            raise ValueError(f"Robot configuration loaded from {path} must have a name")
+        if robot_config.world_frame_name == None:
+            raise ValueError(f"Robot configuration loaded from {path} must have a world_frame_name")
+        if robot_config.tool_frame_name == None:
+            raise ValueError(f"Robot configuration loaded from {path} must have a tool_frame_name")
         robot_config.config_file = Path(path)
         return robot_config
 
@@ -53,13 +59,13 @@ class RobotConfig(BaseModel):
 
 # Base composantes for Costs
 class RegularisationWeights(BaseModel):
-    joint: float = Field(default=None, description="Weight for joint regularisation, default to 0 for no regularisation on joints")
-    vel: float = Field(default=None, description="Weight for velocity regularisation, default to 0 for no regularisation on velocities")
-    command: float = Field(default=None, description="Weight for command regularisation, default to 0 for no regularisation on commands")
+    joint: float = Field(description="Weight for joint regularisation, default to 0 for no regularisation on joints")
+    vel: float = Field(description="Weight for velocity regularisation, default to 0 for no regularisation on velocities")
+    command: float = Field(description="Weight for command regularisation, default to 0 for no regularisation on commands")
 
 class WaypointWeights6D(BaseModel):
-    translation: float = Field(default=None, description="Weight for translation part of the cost, default to 0 for purely orientation tracking")
-    orientation: float = Field(default=None, description="Weight for orientation part of the cost, default to 0 for purely position tracking")
+    translation: float = Field(description="Weight for translation part of the cost, default to 0 for purely orientation tracking")
+    orientation: float = Field(description="Weight for orientation part of the cost, default to 0 for purely position tracking")
 
 class WaypointWeights(BaseModel):
     pose: WaypointWeights6D = Field(default_factory=WaypointWeights6D)
@@ -71,21 +77,21 @@ class Cost(BaseModel):
     enabled: bool = Field(default=True, description="Whether this cost is active in the problem")
 
 ### Running costs
-# You can add more cost types as needed (e.g., collision, energy, etc.)
+# You can add more cost types as needed (e.g., collision, etc.)
 class TrajectoryCost(Cost): # This is the main cost type for trajectory tracking
     type: Literal["trajectory"] = "trajectory"
-    regularisation: RegularisationWeights
-    waypoints: WaypointWeights
+    regularisation: RegularisationWeights = Field(default_factory=RegularisationWeights)
+    waypoints: WaypointWeights = Field(default_factory=WaypointWeights)
 
 class CollisionCost(Cost): # Exemple d'extension facile
     type: Literal["collision"] = "collision"
-    margin: float = Field(default=None, description="Distance margin for collision cost")
-    weight: float = Field(default=None, description="Weight for collision cost in the problem")
+    margin: float = Field(description="Distance margin for collision cost")
+    weight: float = Field(description="Weight for collision cost in the problem")
 ### Terminal costs
 # You can add more cost types as needed (e.g., final pose, final velocity, etc.)
 class TerminalCost(Cost):
     type: Literal["terminal"] = "terminal"
-    regularisation: RegularisationWeights
+    regularisation: RegularisationWeights = Field(default_factory=RegularisationWeights)
 
 # Main Weights class that can be easily extended with new cost types
 TermCost = Annotated[
@@ -106,17 +112,17 @@ class Weights(BaseModel):
 # ============================================================================
 
 class SolverParams(BaseModel):
-    tolerance: float = Field(default=0.0, description="Tolerance for solver convergence, default to 0 for no tolerance-based stopping criterion")
-    mu_init: float = Field(default=None, description="Initial barrier parameter for interior point method, default to 0 for no barrier method")
-    max_iters: int = Field(default=100, description="Maximum number of iterations for the solver, default to 100")
+    tolerance: float = Field(description="Tolerance for solver convergence")
+    mu_init: float = Field(description="Initial barrier parameter for interior point method")
+    max_iters: int = Field(description="Maximum number of iterations for the solver")
 
 
 class Solver(BaseModel):
     running: SolverParams = Field(default_factory=SolverParams)
     presolve: SolverParams = Field(default_factory=SolverParams)
-    rollout_type: str = Field(default="RolloutType.ROLLOUT_RICCATI", description="Type of rollout for MPC iterations")
-    sa_strategy: str = Field(default="StrategyType.STRATEGY_LINE_SEARCH", description="Strategy for step acceptance in MPC iterations")
-    linear_solver_choice: str = Field(default="LQ_SOLVER_SERIAL", description="Choice of linear solver for Riccati iterations")
+    rollout_type: str = Field(description="Type of rollout for MPC iterations")
+    sa_strategy: str = Field(description="Strategy for step acceptance in MPC iterations")
+    linear_solver_choice: str = Field(description="Choice of linear solver for Riccati iterations")
     num_threads: int = Field(default=1, description="Number of threads for solver")
     verbose: str = Field(default="aligator.QUIET", description="Verbosity level for solver output")
     
@@ -157,7 +163,7 @@ class RegularisationRef(BaseModel):
 
 class Trajectory(BaseModel):
     """Trajectory generation parameters"""
-    vel: float = Field(default=0.1, description="Desired velocity for trajectory generation")
+    vel: float = Field(description="Desired velocity for trajectory generation")
     acceleration: Optional[float] = None
     #interpolation_type: str = "cubic"  # cubic, linear, quintic
 
@@ -168,9 +174,9 @@ class Trajectory(BaseModel):
 
 class MPC(BaseModel):
     """MPC problem configuration"""
-    dt: float = Field(default=0.1, description="Time step for MPC")
-    total_time: float = Field(default=5.0, description="Total time horizon for MPC")
-    nb_steps_horizon: int = Field(default=20, description="Number of steps in the MPC horizon")
+    dt: float = Field(description="Time step for MPC")
+    total_time: float = Field(description="Total time horizon for MPC")
+    nb_steps_horizon: int = Field(description="Number of steps in the MPC horizon")
     
     solver: Solver = Field(default_factory=Solver)
     weights: Weights = Field(default_factory=Weights)
@@ -201,7 +207,7 @@ class MPC(BaseModel):
 
 class TaskConfig(BaseModel):
     """Abstract task configuration - easily extensible"""
-    name: str = Field(default="UnknownTask", description="Type or name of the task")
+    name: str = Field(description="Type or name of the task")
     mpc: MPC = Field(default_factory=MPC)
     trajectory: Trajectory = Field(default_factory=Trajectory)
     # Metadata for tracking config source
@@ -214,7 +220,7 @@ class TaskConfig(BaseModel):
             data = yaml.safe_load(f)
         if "task" in data:
             data = data["task"]
-            
+
         config = cls(**data)
         config.config_file = path
         return config
