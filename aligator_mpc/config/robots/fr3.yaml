@@ -1,0 +1,38 @@
+robot:
+  name: "fr3"
+  world_frame_name: "world"
+  tool_frame_name: "fr3_hand_tcp"
+  # Number of degrees of freedom (DOF) of the robot
+  n_dof: 7 # Optional can be inferred from the length of joint limits, but it's good to have it explicitly for validation and clarity.
+
+  # Joint limits [min, max] in radians
+  joint_limits:
+    joint1: [-2.8973, 2.8973]
+    joint2: [-1.7628, 1.7628]
+    joint3: [-2.8973, 2.8973]
+    joint4: [-3.0718, -0.0698]
+    joint5: [-2.8973, 2.8973]
+    joint6: [-0.0175, 3.7525]
+    joint7: [-2.8973, 2.8973]
+  
+  # Speed limits (maximum joint velocities in rad/s)
+  speed_limits:
+    joint1: 2.1750
+    joint2: 2.1750
+    joint3: 2.1750
+    joint4: 2.6100
+    joint5: 2.6100
+    joint6: 3.5000
+    joint7: 3.5000
+  
+  # Effort limits (maximum joint torques in Nm)
+  effort_limits:
+    joint1: 87.0
+    joint2: 87.0
+    joint3: 87.0
+    joint4: 12.0
+    joint5: 120.0
+    joint6: 120.0
+    joint7: 120.0
+  # Locked joints (if any, specify the joint names here), this joint will not used in the MPC
+  locked_joints: []
