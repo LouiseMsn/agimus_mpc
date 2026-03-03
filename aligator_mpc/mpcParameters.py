@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any, List
 from rich import print as richprint
 from abc import ABC, abstractmethod
 import copy
-from typing import Union, Literal, Annotated
+from typing import Union, Literal, Annotated, Tuple
 
 # ============================================================================
 # Base classes for extensibility
@@ -17,7 +17,8 @@ class RobotConfig(BaseModel):
     name: str
     world_frame_name: str
     tool_frame_name: str
-    joints_to_fix: List[str] = Field(default_factory=list)
+    locked_joints: List[str] = Field(default_factory=list)
+    meshes_packages: List[str] = Field(default_factory=list)
     
     n_dof: Optional[int] = None
     joint_limits: Optional[Dict[str, tuple]] = None
@@ -52,60 +53,169 @@ class RobotConfig(BaseModel):
             raise ValueError(f"Robot configuration loaded from {path} must have a tool_frame_name")
         robot_config.config_file = Path(path)
         return robot_config
+# ============================================================================
+# Constraints Configuration
+# ============================================================================
 
+class Constraint(BaseModel):
+    """Base constraint class"""
+    type: str
+    enabled: bool = Field(default=True)
+
+class JointLimitsConstraint(Constraint):
+    type: Literal["joint_limits"] = "joint_limits"
+    # ajouter des marges souples ??
+
+class TorqueLimitsConstraint(Constraint):
+    type: Literal["torque_limits"] = "torque_limits"
+    scale_factor: float = Field(
+        default=1.0,
+        description="Scale effort limits (e.g., 0.8 for 80% safety margin)"
+    )
+    per_joint_scaling: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Per-joint effort scaling factors"
+    )
+
+class VelocityConstraint(Constraint):
+    type: Literal["velocity"] = "velocity"
+    scale_factor: float = Field(
+        default=1.0,
+        description="Scale effort limits (e.g., 0.8 for 80% safety margin)"
+    )
+    per_joint_scaling: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Per-joint effort scaling factors"
+    )
+
+class CollisionConstraint(Constraint):
+    type: Literal["collision"] = "collision"
+    margin: float = Field(
+        default=0.02,
+        description="Minimum allowed distance (m)"
+    )
+    pairs: Optional[Tuple[str, str]] = Field(
+        default=None,
+        description="Specific collision pairs to check"
+    )
+
+
+ConstraintType = Annotated[
+    Union[JointLimitsConstraint, TorqueLimitsConstraint, VelocityConstraint, CollisionConstraint],
+    Field(discriminator="type")
+]
+
+class ConstraintsConfig(BaseModel):
+    """All constraints for the MPC problem"""
+    constraints: List[ConstraintType] = Field(
+        default_factory=list,
+        description="List of constraints"
+    )
+    enforce_all: bool = Field(
+        default=True,
+        description="All constraints must be satisfied or skip disabled ones"
+    )
+    
+    def get_enabled_constraints(self) -> List[ConstraintType]:
+        """Return only enabled constraints"""
+        return [c for c in self.constraints if c.enabled]
+    
 # ============================================================================
 # Weights structure
 # ============================================================================
 
-# Base composantes for Costs
-class RegularisationWeights(BaseModel):
-    joint: float = Field(description="Weight for joint regularisation, default to 0 for no regularisation on joints")
-    vel: float = Field(description="Weight for velocity regularisation, default to 0 for no regularisation on velocities")
-    command: float = Field(description="Weight for command regularisation, default to 0 for no regularisation on commands")
+class WeightVector(BaseModel):
+    """Flexible weight definition"""
+    mode: Literal["vector", "scale", "identity"] = Field(
+        default="vector",
+        description="'vector'=explicit values, 'scale'=uniform scaling, 'identity'=1.0"
+    )
+    
+    values: Optional[List[float]] = Field(
+        default=None,
+        description="Explicit weight values (for mode='vector')"
+    )
+    
+    scale: Optional[float] = Field(
+        default=1.0,
+        description="Uniform scaling factor"
+    )
+
+    @model_validator(mode='after')
+    def validate_weights(self):
+        if self.mode == "vector" and self.values is None:
+            raise ValueError("'vector' mode requires 'values' field")
+        return self
+
+class StateRegularizationWeights(BaseModel):
+    """Weights for state regularization"""
+    position: WeightVector = Field(
+        default_factory=WeightVector,
+        description="Position regularization weights"
+    )
+    velocity: WeightVector = Field(
+        default_factory=WeightVector,
+        description="Velocity regularization weights"
+    )
+    torque: WeightVector = Field(
+        default_factory=WeightVector,
+        description="Torque regularization weights"
+    )
 
 class WaypointWeights6D(BaseModel):
-    translation: float = Field(description="Weight for translation part of the cost, default to 0 for purely orientation tracking")
-    orientation: float = Field(description="Weight for orientation part of the cost, default to 0 for purely position tracking")
+    """6D waypoint weights (translation + rotation)"""
+    translation: List[float] = Field(default=[1.0, 1.0, 1.0], description="Weights for translation part of the cost")
+    orientation: List[float] = Field(default=[1.0, 1.0, 1.0], description="Weights for orientation part of the cost")
 
-class WaypointWeights(BaseModel):
+class WaypointWeightsConfig(BaseModel):
+    """Waypoint tracking weights"""
     pose: WaypointWeights6D = Field(default_factory=WaypointWeights6D)
-    vel: WaypointWeights6D = Field(default_factory=WaypointWeights6D)
+    velocity: WaypointWeights6D = Field(default_factory=WaypointWeights6D)
 
-# Base classes for running and terminal costs
 class Cost(BaseModel):
-    type: str # Discriminator for cost type
-    enabled: bool = Field(default=True, description="Whether this cost is active in the problem")
+    """Base cost class"""
+    type: str
+    enabled: bool = Field(default=True)
 
-### Running costs
-# You can add more cost types as needed (e.g., collision, etc.)
-class TrajectoryCost(Cost): # This is the main cost type for trajectory tracking
+class TrajectoryCost(Cost):
+    """Main trajectory tracking cost"""
     type: Literal["trajectory"] = "trajectory"
-    regularisation: RegularisationWeights = Field(default_factory=RegularisationWeights)
-    waypoints: WaypointWeights = Field(default_factory=WaypointWeights)
+    
+    state_regularization: StateRegularizationWeights = Field(
+        default_factory=StateRegularizationWeights
+    )
+    waypoints: WaypointWeightsConfig = Field(
+        default_factory=WaypointWeightsConfig
+    )
 
-class CollisionCost(Cost): # Exemple d'extension facile
-    type: Literal["collision"] = "collision"
-    margin: float = Field(description="Distance margin for collision cost")
-    weight: float = Field(description="Weight for collision cost in the problem")
-### Terminal costs
-# You can add more cost types as needed (e.g., final pose, final velocity, etc.)
 class TerminalCost(Cost):
+    """Terminal state cost"""
     type: Literal["terminal"] = "terminal"
-    regularisation: RegularisationWeights = Field(default_factory=RegularisationWeights)
+    
+    state_regularization: StateRegularizationWeights = Field(
+        default_factory=StateRegularizationWeights
+    )
 
-# Main Weights class that can be easily extended with new cost types
-TermCost = Annotated[
-    Union[TerminalCost], 
+RunCostType = Annotated[
+    Union[TrajectoryCost],
     Field(discriminator="type")
 ]
-RunCost = Annotated[
-    Union[TrajectoryCost, CollisionCost], 
+
+TermCostType = Annotated[
+    Union[TerminalCost],
     Field(discriminator="type")
 ]
-class Weights(BaseModel):
-    running: Dict[str, RunCost] = Field(default_factory=dict)
-    terminal: Dict[str, TermCost] = Field(default_factory=dict)
 
+class CostsConfig(BaseModel):
+    """All costs in the MPC problem"""
+    running: Dict[str, RunCostType] = Field(
+        default_factory=dict,
+        description="Running (stage) costs"
+    )
+    terminal: Dict[str, TermCostType] = Field(
+        default_factory=dict,
+        description="Terminal cost"
+    )
 
 # ============================================================================
 # Solver configuration
@@ -134,6 +244,8 @@ class Solver(BaseModel):
                 f"Presolve tolerance ({self.presolve.tolerance}) should be stricter than "
                 f"running tolerance ({self.running.tolerance}). Adjusting presolve tolerance."
             )
+        if self.num_threads < 1:
+            raise ValueError("num_threads must be >= 1")
         return self
 
 
@@ -179,7 +291,8 @@ class MPC(BaseModel):
     nb_steps_horizon: int = Field(description="Number of steps in the MPC horizon")
     
     solver: Solver = Field(default_factory=Solver)
-    weights: Weights = Field(default_factory=Weights)
+    constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
+    costs: CostsConfig = Field(default_factory=CostsConfig)
     regularisation_ref: RegularisationRef = Field(default_factory=RegularisationRef)
     
     @property
@@ -190,13 +303,30 @@ class MPC(BaseModel):
         return int(self.total_time / self.dt)
     
     @model_validator(mode='after')
-    def validate_horizon(self):
-        """Validate horizon parameters are consistent"""
+    def validate_mpc(self):
+        """Validate all MPC parameters"""
+        # Time parameters
+        if self.dt <= 0:
+            raise ValueError(f"dt must be positive, got {self.dt}")
+        
+        if self.total_time <= 0:
+            raise ValueError(f"total_time must be positive, got {self.total_time}")
+        
+        if self.nb_steps_horizon <= 0:
+            raise ValueError(f"nb_steps_horizon must be positive")
+        
+        # Consistency checks
+        actual_horizon_time = self.nb_steps_horizon * self.dt
+        if actual_horizon_time > self.total_time * 1.01:  # Allow 1% tolerance for rounding
+            raise ValueError(
+                f"Horizon time ({actual_horizon_time:.3f}s) exceeds total_time ({self.total_time}s)"
+            )
+        
         if self.nb_steps_horizon > self.n_total_steps:
             raise ValueError(
-                f"nb_steps_horizon ({self.nb_steps_horizon}) cannot be greater than "
-                f"n_total_steps ({self.n_total_steps})"
+                f"Horizon steps ({self.nb_steps_horizon}) > total steps ({self.n_total_steps})"
             )
+        
         return self
 
 
@@ -210,8 +340,8 @@ class TaskConfig(BaseModel):
     name: str = Field(description="Type or name of the task")
     mpc: MPC = Field(default_factory=MPC)
     trajectory: Trajectory = Field(default_factory=Trajectory)
-    # Metadata for tracking config source
     config_file: Optional[Path] = None
+
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Config":
         """Load configuration from YAML file"""
@@ -220,15 +350,10 @@ class TaskConfig(BaseModel):
             data = yaml.safe_load(f)
         if "task" in data:
             data = data["task"]
-
         config = cls(**data)
         config.config_file = path
         return config
-    
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Config":
-        """Create configuration from dictionary"""
-        return cls(**data)
+
 
 class Config(BaseModel):
     """Main configuration object for MPC"""
@@ -239,6 +364,13 @@ class Config(BaseModel):
     config_name: Optional[str] = None
     
     model_config = ConfigDict(extra="allow")  # Allow additional fields for specific configurations without modifying base class
+    
+    @classmethod
+    def from_yaml(cls, path: str | Path) -> "Config":
+        """Load from single YAML file"""
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        return cls(**data)
     
     def merge_with(self, other: "Config") -> "Config":
         """
@@ -258,16 +390,6 @@ class Config(BaseModel):
         
         merged_dict = deep_merge(merged_dict, other_dict)
         return Config(**merged_dict)
-    
-    def get_robot_config(self) -> RobotConfig:
-        """Get robot configuration"""
-        return self.robot
-    def get_mpc_config(self) -> MPC:
-        """Get MPC configuration"""
-        return self.task.mpc
-    def get_trajectory_config(self) -> Trajectory:
-        """Get trajectory configuration"""
-        return self.task.trajectory
 
     def update_weights(self, weights_dict: Dict[str, Any]) -> None:
         """
@@ -310,30 +432,44 @@ class ConfigManager:
         self.config_dir = Path(config_dir)
         self.configs: Dict[str, Config] = {}
 
-    def get_robot(self, name: str, path: Optional[Path] = None) -> RobotConfig:
+    def load_robot(self, name: str, path: Optional[Path] = None) -> RobotConfig:
+        """Load robot configuration"""
         if path is None:
-            robot_path = Path(self.config_dir) / "robots" / f"{name}.yaml"
+            robot_path = self.config_dir / "robots" / f"{name}.yaml"
         else:
-            robot_path = Path(path)  / "robots" / f"{name}.yaml"
+            robot_path = Path(path) / "robots" / f"{name}.yaml"
+        
         return RobotConfig.from_yaml(robot_path)
-
-    def get_task(self, name: str, path: Optional[Path] = None) -> TaskConfig:
+    
+    def load_task(self, name: str, path: Optional[Path] = None) -> TaskConfig:
+        """Load task configuration"""
         if path is None:
-            task_path = Path(self.config_dir) / "tasks" / f"{name}.yaml"
+            task_path = self.config_dir / "tasks" / f"{name}.yaml"
         else:
             task_path = Path(path) / "tasks" / f"{name}.yaml"
+        
         return TaskConfig.from_yaml(task_path)
 
-    def build_full_config(self, robot_name: str, task_name: str, path: Optional[Path] = None) -> Config:
-        robot = self.get_robot(robot_name, path)
-        task = self.get_task(task_name, path)
-        self.configs[f"{robot_name}_{task_name}"] = Config(robot=robot, task=task, config_name=f"{robot_name}_{task_name}")
-        return self.configs[f"{robot_name}_{task_name}"]
-
+    def build_config(self, robot_name: str, task_name: str, path: Optional[Path] = None) -> Config:
+        """Build complete configuration"""
+        robot = self.load_robot(robot_name, path)
+        task = self.load_task(task_name, path)
+        
+        config_key = f"{robot_name}_{task_name}"
+        config = Config(robot=robot, task=task, config_name=config_key)
+        self.configs[config_key] = config
+        
+        return config
+    def add_config(self, config: Config) -> None:
+        """Add a pre-built configuration to the manager"""
+        if config.config_name is None:
+            raise ValueError("Config must have a config_name to be added to ConfigManager")
+        if config.config_name in self.configs:
+            raise ValueError(f"Config with name '{config.config_name}' already exists in ConfigManager")
+        self.configs[config.config_name] = config
     def get_config(self, name: str) -> Optional[Config]:
         """Retrieve cached configuration"""
         return self.configs.get(name)
-
 
     def list_configs(self) -> List[str]:
         """List all loaded configurations"""
@@ -359,7 +495,7 @@ if __name__ == "__main__":
 
     print("\n2. Creating example configuration with config manager")
     config_manager = ConfigManager()
-    config = config_manager.build_full_config(robot_name="fr3", task_name="glue_spreading")
+    config = config_manager.build_config(robot_name="fr3", task_name="glue_spreading")
     richprint(config)
 
     print("\n3. Creating a variant configuration for a different trajectory")

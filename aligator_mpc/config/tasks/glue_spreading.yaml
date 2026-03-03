@@ -15,7 +15,6 @@ task:
     dt: 0.02                  # Time step in seconds
     total_time: 500         # Total time for the MPC in steps (e.g., 500 steps = 10 seconds)
     nb_steps_horizon: 50      # Number of steps in MPC horizon
-    
     # ====================================================================
     # Solver Configuration
     # ====================================================================
@@ -38,11 +37,38 @@ task:
       linear_solver_choice:  "aligator.LQ_SOLVER_PARALLEL"
       num_threads: 10          # Number of parallel threads
       verbose: "aligator.QUIET"          # Enable verbose solver output
+    # ======================================================================
+    # Constraints
+    # ======================================================================
+    constraints:
+      constraints:
+        # Joint limits with soft margin
+        - type: "joint_limits"
+          enabled: true
 
+        # Torque limits with safety factor
+        - type: "torque_limits"
+          enabled: true
+          scale_factor: 0.8
+          per_joint_scaling: null
+        
+        # Optional: velocity constraints
+        - type: "velocity"
+          enabled: false
+          scale_factor: 0.8
+          per_joint_scaling: null
+        
+        # Optional: collision avoidance
+        - type: "collision"
+          enabled: false
+          margin: 0.02
+          pairs: ["fr3_hand_tcp", "table_link"] # Example pair to check for collisions
+      
+      enforce_all: true
     # ====================================================================
     # Cost Function Weights
     # ====================================================================
-    weights:
+    costs:
       # Running costs (applied at each time step)
       running:
         trajectory:
@@ -50,36 +76,47 @@ task:
           enabled: true
           
           # Regularisation costs
-          regularisation:
-            joint: 1e-3        # Weight for joint position regularisation
-            vel: 1e-1         # Weight for joint velocity regularisation
-            command: 1e-4     # Weight for command (torque) regularisation
+          state_regularization:
+            position: # Weight for joint position regularisation
+              mode: "vector"
+              values: [25, 10, 1, 1, 1, 0.1, 0.01]
+              scale: 1e-3
+            
+            velocity: # Weight for joint velocity regularisation
+              mode: "vector"
+              values: [20, 20, 1, 1, 1, 1.0, 1.0]
+              scale: 1e-1
+
+            torque: # Weight for command (torque) regularisation
+              mode: "scale"
+              scale: 1e-4
           
           # Waypoint tracking costs
           waypoints:
             pose:
-              translation: 400.0    # Weight for position tracking
-              orientation: 300.0    # Weight for orientation tracking
+              translation: [400.0,400.0,400.0]    # Weight for position tracking
+              orientation: [300.0,300.0,300.0]    # Weight for orientation tracking
             vel:
-              translation: -0.02    # Weight for linear velocity tracking
-              orientation: -0.002    # Weight for angular velocity tracking
-        
-        # Optional: Collision avoidance cost
-        collision:
-          type: "collision"
-          enabled: true
-          weight: 0.1 # very sensitive, max around ~ 0.1
-          margin: 0.05 # distance at which collision cost starts to be applied
+              translation: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
+              orientation: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
       
       # Terminal cost (applied at the end of horizon)
       terminal:
         final_pose:
           type: "terminal"
           enabled: true
-          regularisation:
-            joint: 1e-4
-            vel: 1e-2
-            command: -1.0
+          state_regularization:
+            position: # Weight for joint position regularisation at terminal step
+              mode: "vector"
+              values: [25, 10, 1, 1, 1, 0.1, 0.01]
+              scale: 1e-4
+            velocity: # Weight for joint velocity regularisation at terminal step
+              mode: "vector"
+              values: [20, 20, 1, 1, 1, 1.0, 1.0]
+              scale: 1e-2
+            torque: # Weight for command (torque) regularisation at terminal step
+              mode: "scale"
+              scale: -1.0
 
     # ====================================================================
     # Regularisation Reference
