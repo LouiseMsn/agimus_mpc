@@ -8,7 +8,7 @@ import copy
 from typing import Union, Literal, Annotated, Tuple
 
 # ============================================================================
-# Base classes for extensibility
+# Base classes
 # ============================================================================
 
 class RobotConfig(BaseModel):
@@ -63,7 +63,7 @@ class Constraint(BaseModel):
 
 class JointLimitsConstraint(Constraint):
     type: Literal["joint_limits"] = "joint_limits"
-    # ajouter des marges souples ??
+    #? ajouter des marges plus petites que les marges constructeur ??
 
 class TorqueLimitsConstraint(Constraint):
     type: Literal["torque_limits"] = "torque_limits"
@@ -97,8 +97,7 @@ class CollisionConstraint(Constraint):
         default=None,
         description="Specific collision pairs to check"
     )
-
-
+# Pydantics does not handle using `Contraint` type for the inherited classes
 ConstraintType = Annotated[
     Union[JointLimitsConstraint, TorqueLimitsConstraint, VelocityConstraint, CollisionConstraint],
     Field(discriminator="type")
@@ -109,10 +108,6 @@ class ConstraintsConfig(BaseModel):
     constraints: List[ConstraintType] = Field(
         default_factory=list,
         description="List of constraints"
-    )
-    enforce_all: bool = Field(
-        default=True,
-        description="All constraints must be satisfied or skip disabled ones"
     )
     
     def get_enabled_constraints(self) -> List[ConstraintType]:
