@@ -1,128 +1,127 @@
-task:
-  name: "glue_spreading"
-  # ========================================================================
-  # Trajectory Configuration
-  # ========================================================================
-  trajectory:
-    vel: 0.1                  # Desired velocity in m/s
-    #acceleration: 0.2         # Optional: acceleration in m/s²
-  
-  # ========================================================================
-  # Model Predictive Control (MPC) Configuration
-  # ========================================================================
-  mpc:
-    # Time parameters
-    dt: 0.02                  # Time step in seconds
-    total_time: 500         # Total time for the MPC in steps (e.g., 500 steps = 10 seconds)
-    nb_steps_horizon: 50      # Number of steps in MPC horizon
-    # ====================================================================
-    # Solver Configuration
-    # ====================================================================
-    solver:
-      # Running solver parameters (optimization during execution)
-      running:
-        tolerance: 1e-8      # Convergence tolerance
-        mu_init: 1e-4         # Initial barrier parameter
-        max_iters: 3        # Maximum iterations
-      
-      # Presolve parameters (should be stricter than running)
-      presolve:
-        tolerance: 1e-14    # Stricter convergence criterion (1e-4)
-        mu_init: 1e-1
-        max_iters: 1000
-      
-      # Algorithm parameters
-      rollout_type: "RolloutType.ROLLOUT_RICCATI"
-      sa_strategy: "StrategyType.STRATEGY_LINE_SEARCH"
-      linear_solver_choice:  "aligator.LQ_SOLVER_PARALLEL"
-      num_threads: 10          # Number of parallel threads
-      verbose: "aligator.QUIET"          # Enable verbose solver output
-    # ======================================================================
-    # Constraints
-    # ======================================================================
+name: "glue_spreading"
+# ========================================================================
+# Trajectory Configuration
+# ========================================================================
+trajectory:
+  vel: 0.1                  # Desired velocity in m/s
+  #acceleration: 0.2         # Optional: acceleration in m/s²
+
+# ========================================================================
+# Model Predictive Control (MPC) Configuration
+# ========================================================================
+mpc:
+  # Time parameters
+  dt: 0.02                  # Time step in seconds
+  total_time: 500         # Total time for the MPC in steps (e.g., 500 steps = 10 seconds)
+  nb_steps_horizon: 50      # Number of steps in MPC horizon
+  # ====================================================================
+  # Solver Configuration
+  # ====================================================================
+  solver:
+    # Running solver parameters (optimization during execution)
+    running:
+      tolerance: 1e-8      # Convergence tolerance
+      mu_init: 1e-4         # Initial barrier parameter
+      max_iters: 3        # Maximum iterations
+    
+    # Presolve parameters (should be stricter than running)
+    presolve:
+      tolerance: 1e-14    # Stricter convergence criterion (1e-4)
+      mu_init: 1e-1
+      max_iters: 1000
+    
+    # Algorithm parameters
+    rollout_type: "RolloutType.ROLLOUT_RICCATI"
+    sa_strategy: "StrategyType.STRATEGY_LINE_SEARCH"
+    linear_solver_choice:  "aligator.LQ_SOLVER_PARALLEL"
+    num_threads: 10          # Number of parallel threads
+    verbose: "aligator.QUIET"          # Enable verbose solver output
+  # ======================================================================
+  # Constraints
+  # ======================================================================
+  constraints:
     constraints:
-      constraints:
-        # Joint limits with soft margin
-        - type: "joint_limits"
-          enabled: true
+      # Joint limits with soft margin
+      - type: "joint_limits"
+        enabled: true
 
-        # Torque limits with safety factor
-        - type: "torque_limits"
-          enabled: true
-          scale_factor: 0.8
-          per_joint_scaling: null
-        
-        # Optional: velocity constraints
-        - type: "velocity"
-          enabled: false
-          scale_factor: 0.8
-          per_joint_scaling: null
-        
-        # Optional: collision avoidance
-        - type: "collision"
-          enabled: false
-          margin: 0.02
-          pairs: ["fr3_hand_tcp", "table_link"] # Example pair to check for collisions
+      # Torque limits with safety factor
+      - type: "torque_limits"
+        enabled: true
+        scale_factor: 0.8
+        per_joint_scaling: null
       
-      enforce_all: true
-    # ====================================================================
-    # Cost Function Weights
-    # ====================================================================
-    costs:
-      # Running costs (applied at each time step)
-      running:
-        trajectory:
-          type: "trajectory"
-          enabled: true
-          
-          # Regularisation costs
-          state_regularization:
-            position: # Weight for joint position regularisation
-              mode: "vector"
-              values: [25, 10, 1, 1, 1, 0.1, 0.01]
-              scale: 1e-3
-            
-            velocity: # Weight for joint velocity regularisation
-              mode: "vector"
-              values: [20, 20, 1, 1, 1, 1.0, 1.0]
-              scale: 1e-1
-
-            torque: # Weight for command (torque) regularisation
-              mode: "scale"
-              scale: 1e-4
-          
-          # Waypoint tracking costs
-          waypoints:
-            pose:
-              translation: [400.0,400.0,400.0]    # Weight for position tracking
-              orientation: [300.0,300.0,300.0]    # Weight for orientation tracking
-            vel:
-              translation: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
-              orientation: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
+      # Optional: velocity constraints
+      - type: "velocity"
+        enabled: false
+        scale_factor: 0.8
+        per_joint_scaling: null
       
-      # Terminal cost (applied at the end of horizon)
-      terminal:
-        final_pose:
-          type: "terminal"
-          enabled: true
-          state_regularization:
-            position: # Weight for joint position regularisation at terminal step
-              mode: "vector"
-              values: [25, 10, 1, 1, 1, 0.1, 0.01]
-              scale: 1e-4
-            velocity: # Weight for joint velocity regularisation at terminal step
-              mode: "vector"
-              values: [20, 20, 1, 1, 1, 1.0, 1.0]
-              scale: 1e-2
-            torque: # Weight for command (torque) regularisation at terminal step
-              mode: "scale"
-              scale: -1.0
+      # Optional: collision avoidance
+      - type: "collision"
+        enabled: false
+        margin: 0.02
+        pairs: ["fr3_hand_tcp", "table_link"] # Example pair to check for collisions
+    
+    enforce_all: true
+  # ====================================================================
+  # Cost Function Weights
+  # ====================================================================
+  costs:
+    # Running costs (applied at each time step)
+    running:
+      trajectory:
+        type: "trajectory"
+        enabled: true
+        
+        # Regularisation costs
+        state_regularization:
+          position: # Weight for joint position regularisation
+            mode: "vector"
+            values: [25, 10, 1, 1, 1, 0.1, 0.01]
+            scale: 1e-3
+          
+          velocity: # Weight for joint velocity regularisation
+            mode: "vector"
+            values: [20, 20, 1, 1, 1, 1.0, 1.0]
+            scale: 1e-1
 
-    # ====================================================================
-    # Regularisation Reference
-    # ====================================================================
-    regularisation_ref:
-      # Reference joint configuration (optional, can be set to current position or a nominal pose)
-      joint_pos: [-8.97653063991213e-07, -0.7808463663675579, 2.2971344285441086e-15, -2.366688685342141, -9.726534605596857e-06, 1.5702636943341912, -0.6913420805230404]
-      # Reference joint velocities (typically zero)
-      joint_vel: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 
+          torque: # Weight for command (torque) regularisation
+            mode: "scale"
+            scale: 1e-4
+        
+        # Waypoint tracking costs
+        waypoints:
+          pose:
+            translation: [400.0,400.0,400.0]    # Weight for position tracking
+            orientation: [300.0,300.0,300.0]    # Weight for orientation tracking
+          vel:
+            translation: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
+            orientation: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
+    
+    # Terminal cost (applied at the end of horizon)
+    terminal:
+      final_pose:
+        type: "terminal"
+        enabled: true
+        state_regularization:
+          position: # Weight for joint position regularisation at terminal step
+            mode: "vector"
+            values: [25, 10, 1, 1, 1, 0.1, 0.01]
+            scale: 1e-4
+          velocity: # Weight for joint velocity regularisation at terminal step
+            mode: "vector"
+            values: [20, 20, 1, 1, 1, 1.0, 1.0]
+            scale: 1e-2
+          torque: # Weight for command (torque) regularisation at terminal step
+            mode: "scale"
+            scale: -1.0
+
+  # ====================================================================
+  # Regularisation Reference
+  # ====================================================================
+  regularisation_ref:
+    # Reference joint configuration (optional, can be set to current position or a nominal pose)
+    joint_pos: [-8.97653063991213e-07, -0.7808463663675579, 2.2971344285441086e-15, -2.366688685342141, -9.726534605596857e-06, 1.5702636943341912, -0.6913420805230404]
+    # Reference joint velocities (typically zero)
+    joint_vel: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] 

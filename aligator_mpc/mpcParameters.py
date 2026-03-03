@@ -42,8 +42,6 @@ class RobotConfig(BaseModel):
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
         # Handle case where robot config is nested under "robot" key in YAML
-        if "robot" in data:
-            data = data["robot"]
         robot_config = cls(**data)
         if robot_config.name == None:
             raise ValueError(f"Robot configuration loaded from {path} must have a name")
@@ -53,6 +51,7 @@ class RobotConfig(BaseModel):
             raise ValueError(f"Robot configuration loaded from {path} must have a tool_frame_name")
         robot_config.config_file = Path(path)
         return robot_config
+    
 # ============================================================================
 # Constraints Configuration
 # ============================================================================
@@ -348,8 +347,6 @@ class TaskConfig(BaseModel):
         path = Path(path)
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
-        if "task" in data:
-            data = data["task"]
         config = cls(**data)
         config.config_file = path
         return config
