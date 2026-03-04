@@ -116,7 +116,7 @@ class MPC():
             # create the stages & problem
             stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.mpc.nb_steps_horizon)
             # terminal_coststack = self.stage_factory.getTerminalCoststack(0)
-
+            # __import__('IPython').embed()
             self.problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
             self.solver.setup(self.problem)
             self.solver.max_iters = self.parameters.mpc.solver.presolve.max_iters
@@ -272,9 +272,10 @@ class StageFactory():
 
         self.interpolator = self.getInterpolator()
 
+        # self.addContactForceCosts()
         self.addWaypointCosts()
         self.addJointsLimitsConstraints()
-        self.addTorqueLimitsConstraints()
+        # self.addTorqueLimitsConstraints()
         self.addRegularisationCosts()
         # self.addAutoCollisionsConstraints()
         self.buildStageModelList()
@@ -461,7 +462,6 @@ class StageFactory():
     def addWaypointCosts(self) -> None:
         """For each stage adds a cost tied to matching the end effector frame to a waypoint frame and a cost tied to matching the frame velocity
         """
-        tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
         frame_vel_cost = []
         placement_costs = []
         for t in range (self.parameters.mpc.n_total_steps):
@@ -499,6 +499,34 @@ class StageFactory():
 
             collision_constraint = constraints.BoxConstraint(np.array([0.05]), np.array([100]))
             self.stages_definition.constraints.append((collision_residual, collision_constraint))
+    
+    def addContactForceCosts(self) -> None:
+        """_summary_
+        """
+        contact_costs = []
+        actuation_matrix = np.zeros((self.nv, self.nu))
+        actuation_matrix[-self.nu:][:] = np.identity(self.nu)
+        prox_settings = pin.ProximalSettings(1e-9, 1e-10, 10)
+        fref = np.array([0,0,-30])
+        joint1_id = self.robot.model.frames[self.tool_id].parentJoint #? self.tool_id provoque un segfault?  
+        joint2_id = 0
+        weights = [1e-2, 1e-2, 1e-2]
+
+        for t in range(self.parameters.mpc.n_total_steps):
+            pose , _ = self.interpolator(t*self.parameters.mpc.dt)
+            joint1_pl = self.robot.model.frames[self.tool_id].placement
+            joint2_pl = pin.SE3.Identity() #  pose # pourquoi identité sur le second joint ???
+            constraint_model = pin.RigidConstraintModel(pin.ContactType.CONTACT_3D, self.robot.model, joint1_id, joint1_pl, joint2_id, joint2_pl, pin.LOCAL) # parent joint of the tool_id??
+            # constraint_model.corrector.Kp = np.zeros(3)
+            # constraint_model.corrector.Kd = np.zeros(3)
+            constraint_model.name = self.parameters.robot.tool_frame_name
+            constraint_models = [constraint_model]
+
+            residual = aligator.ContactForceResidual(self.ndx, self.robot.model, actuation_matrix, constraint_models, prox_settings, fref, self.parameters.robot.tool_frame_name)
+
+            cost = (f"contact_{t}", aligator.QuadraticResidualCost(self.space, residual, np.diag(weights))) #! seek size of weight
+            contact_costs.append(cost)
+        self.stages_definition.stage_dep_costs.append(contact_costs)
 
     # ==========================================================================
     # Utils
@@ -531,5 +559,5 @@ class StageFactory():
         traj = []
         for i in range(self.parameters.mpc.n_total_steps):
             pos, _ = self.interpolator(i*self.parameters.mpc.dt)
-            traj.append(pos.translation)
+            traj.append(pos.translation)           
         return traj
