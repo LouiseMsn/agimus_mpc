@@ -94,22 +94,22 @@ mpc:
             translation:     # Weight for position tracking
               mode: "vector"
               values: [400.0,400.0,400.0]
-
+              
             orientation:    # Weight for orientation tracking
               mode: "vector"
               values: [300.0,300.0,300.0]
-              
+
           vel:
             translation:
               mode: "vector"
               values: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
               scale: 1
+
             orientation:
               mode: "vector"
               values: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
               scale: 1
 
-    
     # Terminal cost (applied at the end of horizon)
     terminal:
       final_pose:
@@ -120,10 +120,12 @@ mpc:
             mode: "vector"
             values: [25, 10, 1, 1, 1, 0.1, 0.01]
             scale: 1e-4
+            
           velocity: # Weight for joint velocity regularisation at terminal step
             mode: "vector"
             values: [20, 20, 1, 1, 1, 1.0, 1.0]
             scale: 1e-2
+
           torque: # Weight for command (torque) regularisation at terminal step
             mode: "scale"
             scale: -1.0
