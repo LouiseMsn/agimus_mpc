@@ -158,8 +158,14 @@ class StateRegularizationWeights(BaseModel):
 
 class WaypointWeights6D(BaseModel):
     """6D waypoint weights (translation + rotation)"""
-    translation: List[float] = Field(default=[1.0, 1.0, 1.0], description="Weights for translation part of the cost")
-    orientation: List[float] = Field(default=[1.0, 1.0, 1.0], description="Weights for orientation part of the cost")
+    translation: WeightVector = Field(
+        default_factory=WeightVector,
+        description="Weights for translation part of the cost"
+    )
+    orientation: WeightVector = Field(
+        default_factory=WeightVector,
+         description="Weights for orientation part of the cost"
+    )
 
 class WaypointWeightsConfig(BaseModel):
     """Waypoint tracking weights"""
@@ -232,12 +238,6 @@ class Solver(BaseModel):
     
     @model_validator(mode='after')
     def validate_solver_params(self):
-        """Ensure presolve has stricter tolerances than running"""
-        if self.presolve.tolerance > self.running.tolerance:
-            raise ValueError(
-                f"Presolve tolerance ({self.presolve.tolerance}) should be stricter than "
-                f"running tolerance ({self.running.tolerance}). Adjusting presolve tolerance."
-            )
         if self.num_threads < 1:
             raise ValueError("num_threads must be >= 1")
         return self
@@ -285,7 +285,7 @@ class MPC(BaseModel):
     nb_steps_horizon: int = Field(description="Number of steps in the MPC horizon")
     
     solver: Solver = Field(default_factory=Solver)
-    constraints: ConstraintsConfig = Field(default_factory=ConstraintsConfig)
+    constraints: List[ConstraintType] = Field(default_factory=list)
     costs: CostsConfig = Field(default_factory=CostsConfig)
     regularisation_ref: RegularisationRef = Field(default_factory=RegularisationRef)
     
@@ -323,14 +323,11 @@ class MPC(BaseModel):
         
         return self
 
-
 # ============================================================================
 # Main configuration class
 # ============================================================================
-    
-
 class TaskConfig(BaseModel):
-    """Abstract task configuration - easily extensible"""
+    """Abstract task configuration"""
     name: str = Field(description="Type or name of the task")
     mpc: MPC = Field(default_factory=MPC)
     trajectory: Trajectory = Field(default_factory=Trajectory)
@@ -345,7 +342,6 @@ class TaskConfig(BaseModel):
         config = cls(**data)
         config.config_file = path
         return config
-
 
 class Config(BaseModel):
     """Main configuration object for MPC"""
@@ -452,6 +448,7 @@ class ConfigManager:
         self.configs[config_key] = config
         
         return config
+        
     def add_config(self, config: Config) -> None:
         """Add a pre-built configuration to the manager"""
         if config.config_name is None:
@@ -459,6 +456,7 @@ class ConfigManager:
         if config.config_name in self.configs:
             raise ValueError(f"Config with name '{config.config_name}' already exists in ConfigManager")
         self.configs[config.config_name] = config
+
     def get_config(self, name: str) -> Optional[Config]:
         """Retrieve cached configuration"""
         return self.configs.get(name)

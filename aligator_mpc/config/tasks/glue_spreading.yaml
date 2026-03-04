@@ -24,9 +24,9 @@ mpc:
       mu_init: 1e-4         # Initial barrier parameter
       max_iters: 3        # Maximum iterations
     
-    # Presolve parameters (should be stricter than running)
+    # Presolve parameters
     presolve:
-      tolerance: 1e-14    # Stricter convergence criterion (1e-4)
+      tolerance: 1e-14
       mu_init: 1e-1
       max_iters: 1000
     
@@ -40,30 +40,28 @@ mpc:
   # Constraints
   # ======================================================================
   constraints:
-    constraints:
-      # Joint limits with soft margin
-      - type: "joint_limits"
-        enabled: true
+    # Joint limits with soft margin
+    - type: "joint_limits"
+      enabled: true
 
-      # Torque limits with safety factor
-      - type: "torque_limits"
-        enabled: true
-        scale_factor: 0.8
-        per_joint_scaling: null
-      
-      # Optional: velocity constraints
-      - type: "velocity"
-        enabled: false
-        scale_factor: 0.8
-        per_joint_scaling: null
-      
-      # Optional: collision avoidance
-      - type: "collision"
-        enabled: false
-        margin: 0.02
-        pairs: ["fr3_hand_tcp", "table_link"] # Example pair to check for collisions
+    # Torque limits with safety factor
+    - type: "torque_limits"
+      enabled: true
+      scale_factor: 0.8
+      per_joint_scaling: null
     
-    enforce_all: true
+    # Optional: velocity constraints
+    - type: "velocity"
+      enabled: false
+      scale_factor: 0.8
+      per_joint_scaling: null
+    
+    # Optional: collision avoidance
+    - type: "collision"
+      enabled: false
+      margin: 0.02
+      pairs: ["fr3_hand_tcp", "table_link"] # Example pair to check for collisions
+
   # ====================================================================
   # Cost Function Weights
   # ====================================================================
@@ -83,7 +81,7 @@ mpc:
           
           velocity: # Weight for joint velocity regularisation
             mode: "vector"
-            values: [20, 20, 1, 1, 1, 1.0, 1.0]
+            values: [20, 20, 1, 1, 1, 1, 10]
             scale: 1e-1
 
           torque: # Weight for command (torque) regularisation
@@ -93,11 +91,24 @@ mpc:
         # Waypoint tracking costs
         waypoints:
           pose:
-            translation: [400.0,400.0,400.0]    # Weight for position tracking
-            orientation: [300.0,300.0,300.0]    # Weight for orientation tracking
+            translation:     # Weight for position tracking
+              mode: "vector"
+              values: [400.0,400.0,400.0]
+
+            orientation:    # Weight for orientation tracking
+              mode: "vector"
+              values: [300.0,300.0,300.0]
+              
           vel:
-            translation: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
-            orientation: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
+            translation:
+              mode: "vector"
+              values: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
+              scale: 1
+            orientation:
+              mode: "vector"
+              values: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
+              scale: 1
+
     
     # Terminal cost (applied at the end of horizon)
     terminal:
