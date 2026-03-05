@@ -6,7 +6,7 @@ from rich import print as richprint
 from abc import ABC, abstractmethod
 import copy
 from typing import Union, Literal, Annotated, Tuple
-
+import numpy as np
 # ============================================================================
 # Base classes
 # ============================================================================
@@ -77,7 +77,7 @@ class TorqueLimitsConstraint(Constraint):
     )
 
 class VelocityConstraint(Constraint):
-    type: Literal["velocity"] = "velocity"
+    type: Literal["velocity_limits"] = "velocity_limits"
     scale_factor: float = Field(
         default=1.0,
         description="Scale effort limits (e.g., 0.8 for 80% safety margin)"
@@ -102,119 +102,111 @@ ConstraintType = Annotated[
     Union[JointLimitsConstraint, TorqueLimitsConstraint, VelocityConstraint, CollisionConstraint],
     Field(discriminator="type")
 ]
-
-class ConstraintsConfig(BaseModel):
-    """All constraints for the MPC problem"""
-    constraints: List[ConstraintType] = Field(
-        default_factory=list,
-        description="List of constraints"
-    )
-    
-    def get_enabled_constraints(self) -> List[ConstraintType]:
-        """Return only enabled constraints"""
-        return [c for c in self.constraints if c.enabled]
     
 # ============================================================================
 # Weights structure
 # ============================================================================
 
 class WeightVector(BaseModel):
-    """Flexible weight definition"""
-    mode: Literal["vector", "scale", "identity"] = Field(
-        default="vector",
-        description="'vector'=explicit values, 'scale'=uniform scaling, 'identity'=1.0"
-    )
+    """Vector weight definition"""
+    mode: Literal["scalable-vector"] = "scalable-vector"
     
     values: Optional[List[float]] = Field(
         default=None,
-        description="Explicit weight values (for mode='vector')"
+        description="Explicit weight values"
     )
     
     scale: Optional[float] = Field(
         default=1.0,
-        description="Uniform scaling factor"
+        description="Uniform scaling factor (optional)"
     )
 
     @model_validator(mode='after')
     def validate_weights(self):
-        if self.mode == "vector" and self.values is None:
-            raise ValueError("'vector' mode requires 'values' field")
+        if self.values is None:
+            raise ValueError("'scalable-vector' mode requires 'values' field")
         return self
+
+    
+class WeightScalar(BaseModel):
+    """Scalar weight definition"""
+    mode: Literal["scalar"] = "scalar"
+    
+    value: Optional[float] = Field(
+        default=None,
+        description="Scalar weight value (for mode='scalar')"
+    )
+    
+    @model_validator(mode='after')
+    def validate_scalar(self):
+        if self.value is None:
+            raise ValueError("'scalar' mode requires 'value' field")
+        return self
+
+WeightType = Annotated[Union[WeightVector, WeightScalar], Field(discriminator="mode")]
 
 class StateRegularizationWeights(BaseModel):
     """Weights for state regularization"""
-    position: WeightVector = Field(
-        default_factory=WeightVector,
+    type: Literal["regularisation"] = "regularisation"
+    position: WeightType = Field(
         description="Position regularization weights"
     )
-    velocity: WeightVector = Field(
-        default_factory=WeightVector,
+    velocity: WeightType = Field(
         description="Velocity regularization weights"
     )
-    torque: WeightVector = Field(
-        default_factory=WeightVector,
+    torque: WeightType = Field(
         description="Torque regularization weights"
     )
 
 class WaypointWeights6D(BaseModel):
     """6D waypoint weights (translation + rotation)"""
-    translation: WeightVector = Field(
-        default_factory=WeightVector,
+    translation: WeightType = Field(
         description="Weights for translation part of the cost"
     )
-    orientation: WeightVector = Field(
-        default_factory=WeightVector,
-         description="Weights for orientation part of the cost"
+    orientation: WeightType = Field(
+        description="Weights for orientation part of the cost"
     )
+    @property
+    def get_weights(self):
+        """Get the actual weight vectors for translation and orientation, applying scaling if needed"""
+        match self.translation.mode:
+            case "scalable-vector":
+                translation_weights = np.array(self.translation.values)*self.translation.scale
+            case "scalar":
+                translation_weights = self.translation.value * np.ones(3)
+        match self.orientation.mode:
+            case "scalable-vector":
+                orientation_weights = np.array(self.orientation.values)*self.orientation.scale
+            case "scalar":
+                orientation_weights = self.orientation.value * np.ones(3)
+        return translation_weights, orientation_weights
+
 
 class WaypointWeightsConfig(BaseModel):
     """Waypoint tracking weights"""
-    pose: WaypointWeights6D = Field(default_factory=WaypointWeights6D)
-    velocity: WaypointWeights6D = Field(default_factory=WaypointWeights6D)
+    type: Literal["waypoints"] = "waypoints"
+    pose: WaypointWeights6D = Field(description="Weights for pose tracking")
+    velocity: WaypointWeights6D = Field(description="Weights for velocity tracking")
+
+WeightsCost = Annotated[
+    Union[StateRegularizationWeights, WaypointWeightsConfig],
+    Field(discriminator="type")
+]
 
 class Cost(BaseModel):
     """Base cost class"""
-    type: str
     enabled: bool = Field(default=True)
-
-class TrajectoryCost(Cost):
-    """Main trajectory tracking cost"""
-    type: Literal["trajectory"] = "trajectory"
-    
-    state_regularization: StateRegularizationWeights = Field(
-        default_factory=StateRegularizationWeights
-    )
-    waypoints: WaypointWeightsConfig = Field(
-        default_factory=WaypointWeightsConfig
-    )
-
-class TerminalCost(Cost):
-    """Terminal state cost"""
-    type: Literal["terminal"] = "terminal"
-    
-    state_regularization: StateRegularizationWeights = Field(
-        default_factory=StateRegularizationWeights
-    )
-
-RunCostType = Annotated[
-    Union[TrajectoryCost],
-    Field(discriminator="type")
-]
-
-TermCostType = Annotated[
-    Union[TerminalCost],
-    Field(discriminator="type")
-]
+    weights: WeightsCost
 
 class CostsConfig(BaseModel):
     """All costs in the MPC problem"""
-    running: Dict[str, RunCostType] = Field(
+    running: Dict[str, Cost] = Field(
         default_factory=dict,
-        description="Running (stage) costs"
+        description="Dictionary of running costs (applied at each time step)"
     )
-    terminal: Dict[str, TermCostType] = Field(
+    terminal: Dict[str, Cost] = Field(
         default_factory=dict,
-        description="Terminal cost"
+        description="Dictionary of terminal costs (applied at the end of the horizon)"
     )
 
 # ============================================================================
@@ -334,7 +326,7 @@ class TaskConfig(BaseModel):
     config_file: Optional[Path] = None
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Config":
+    def from_yaml(cls, path: str | Path) -> "TaskConfig":
         """Load configuration from YAML file"""
         path = Path(path)
         with open(path, "r", encoding="utf-8") as f:
