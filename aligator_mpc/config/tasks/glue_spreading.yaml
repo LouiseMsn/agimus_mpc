@@ -3,7 +3,7 @@ name: "glue_spreading"
 # Trajectory Configuration
 # ========================================================================
 trajectory:
-  vel: 0.1                  # Desired velocity in m/s
+  vel: 0.025                  # Desired velocity in m/s
   #acceleration: 0.2         # Optional: acceleration in m/s²
 
 # ========================================================================
@@ -13,7 +13,7 @@ mpc:
   # Time parameters
   dt: 0.02                  # Time step in seconds
   total_time: 500         # Total time for the MPC in steps (e.g., 500 steps = 10 seconds)
-  nb_steps_horizon: 50      # Number of steps in MPC horizon
+  nb_steps_horizon: 100      # Number of steps in MPC horizon
   # ====================================================================
   # Solver Configuration
   # ====================================================================
@@ -31,11 +31,11 @@ mpc:
       max_iters: 1000
     
     # Algorithm parameters
-    rollout_type: "RolloutType.ROLLOUT_RICCATI"
-    sa_strategy: "StrategyType.STRATEGY_LINE_SEARCH"
-    linear_solver_choice:  "aligator.LQ_SOLVER_PARALLEL"
-    num_threads: 10          # Number of parallel threads
-    verbose: "aligator.QUIET"          # Enable verbose solver output
+    rollout_type: aligator.ROLLOUT_LINEAR
+    sa_strategy: aligator.SA_LINESEARCH_NONMONOTONE
+    linear_solver_choice: aligator.LQ_SOLVER_PARALLEL
+    verbose: aligator.QUIET
+    num_threads: 10
   # ======================================================================
   # Constraints
   # ======================================================================
@@ -72,7 +72,7 @@ mpc:
         enabled: true
         # Regularisation costs
         weights:
-          type: "regularisation"
+          type: "state-regularisation"
           position: # Weight for joint position regularisation
             mode: "scalable-vector"
             values: [25, 10, 1, 1, 1, 0.1, 0.01]
@@ -80,8 +80,8 @@ mpc:
           
           velocity: # Weight for joint velocity regularisation
             mode: "scalable-vector"
-            values: [20, 20, 1, 1, 1, 1, 10]
-            scale: 1e-1
+            values: [20, 20, 1, 1, 1, 1, 1]
+            scale: 1e-3
 
           torque: # Weight for command (torque) regularisation
             mode: "scalar"
@@ -104,20 +104,19 @@ mpc:
 
           velocity:
             translation:
-              mode: "scalable-vector"
-              values: [-0.02,-0.02,-0.02]    # Weight for linear velocity tracking
+              mode: "scalar"
+              value: 0.0   # Weight for linear velocity tracking
 
             orientation:
-              mode: "scalable-vector"
-              values: [-0.002,-0.002,-0.002]    # Weight for angular velocity tracking
-              scale: 1
+              mode: "scalar"
+              value: 0.0 # Weight for angular velocity tracking
 
     # Terminal cost (applied at the end of horizon)
     terminal:
       terminal_reg:
         enabled: true
         weights:
-          type: "regularisation"
+          type: "state-regularisation"
           position: # Weight for joint position regularisation at terminal step
             mode: "scalable-vector"
             values: [25, 10, 1, 1, 1, 0.1, 0.01]

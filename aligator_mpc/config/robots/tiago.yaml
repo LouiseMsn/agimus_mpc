@@ -1,0 +1,7 @@
+name: tiago_pro
+world_frame_name: universe
+tool_frame_name: arm_right_tool_link
+# Number of degrees of freedom (DOF) of the robot
+n_dof: 7 # Optional can be inferred from the length of joint limits, but it's good to have it explicitly for validation and clarity.
+# Locked joints (if any, specify the joint names here), this joint will not used in the MPC
+locked_joints: ["wheel_front_right_joint", "wheel_front_left_joint", "wheel_rear_right_joint", "wheel_rear_left_joint", "torso_lift_joint", "head_1_joint", "head_2_joint","arm_left_1_joint", "arm_left_2_joint", "arm_left_3_joint", "arm_left_4_joint", "arm_left_5_joint", "arm_left_6_joint", "arm_left_7_joint"]

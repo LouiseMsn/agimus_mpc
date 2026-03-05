@@ -125,6 +125,9 @@ class WeightVector(BaseModel):
     def validate_weights(self):
         if self.values is None:
             raise ValueError("'scalable-vector' mode requires 'values' field")
+        for value in self.values:
+            if value < 0:
+                raise ValueError("Weight values must be non-negative")
         return self
 
     
@@ -141,6 +144,8 @@ class WeightScalar(BaseModel):
     def validate_scalar(self):
         if self.value is None:
             raise ValueError("'scalar' mode requires 'value' field")
+        if self.value < 0:
+            raise ValueError("Weight value must be non-negative")
         return self
 
 WeightType = Annotated[Union[WeightVector, WeightScalar], Field(discriminator="mode")]
