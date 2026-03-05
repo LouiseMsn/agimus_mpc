@@ -288,7 +288,7 @@ class StageFactory():
         start_pos = self.robot.data.oMf[self.tool_id]        
         self.waypoints = [start_pos] + self.waypoints
         rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start {pin.rpy.matrixToRpy(start_pos.rotation)} { start_pos.translation}')
-        return Interpolator(self.waypoints, self.parameters.trajectory.vel)
+        return Interpolator(self.waypoints, self.parameters.task.trajectory.vel)
 
     def getStageModel(self, stage_number:int) -> aligator.StageModel :
         """Returns the stage model for the `stage_number` th stage
@@ -499,18 +499,19 @@ class StageFactory():
         if not terminal:
             # State reg
             stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)) for i in range(self.parameters.task.mpc.n_total_steps)]
-            if(self.parameters.task.mpc.weights.running.regularisation.vel > 0. or self.parameters.task.mpc.weights.running.regularisation.joint > 0.):
+            # Check if at least one of the weights is non-zero before adding the cost to the stage definition
+            if(np.max(np.abs(weight_vel)) > 0 or np.max(np.abs(weight_pos)) > 0):
                 self.stages_definition.stage_dep_costs.append(stage_reg_cost)
             # Control reg
-            control_reg_cost = [(f"reg_ctrl_{i}", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)) for i in range(self.parameters.mpc.n_total_steps)]
-            if(self.parameters.mpc.weights.running.regularisation.command > 0.):
+            control_reg_cost = [(f"reg_ctrl_{i}", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)) for i in range(self.parameters.task.mpc.n_total_steps)]
+            if(np.max(np.abs(weight_torque)) > 0):
                 self.stages_definition.stage_dep_costs.append(control_reg_cost)
         else:
             # State reg
-            if(self.parameters.task.mpc.weights.terminal.regularisation.vel > 0. or self.parameters.task.mpc.weights.terminal.regularisation.joint > 0.):
+            if(np.max(np.abs(weight_vel)) > 0 or np.max(np.abs(weight_pos)) > 0):
                 self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)))
             # Control reg
-            if(self.parameters.task.mpc.weights.terminal.regularisation.command > 0.):
+            if(np.max(np.abs(weight_torque)) > 0):
                 self.stages_definition.terminal_costs.append(("reg_ctrl_term", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)))
 
     def addWaypointCosts(self, cost:WaypointWeightsConfig) -> None:
@@ -557,10 +558,10 @@ class StageFactory():
         for _, cost in costs_list.running.items():
             if cost.enabled:
                 match cost.weights.type:
-                    case "regularisation":
-                        self.addRegularisationCosts(cost.regularisation, False)
+                    case "state-regularisation":
+                        self.addStateRegularizationCost(cost.weights, False)
                     case "waypoints":
-                        self.addWaypointCosts()
+                        self.addWaypointCosts(cost.weights)
                     case _:
                         raise ValueError(f"Cost type {cost.type} not recognized, available types are : 'regularisation' and 'waypoints'")
             else:
@@ -569,8 +570,8 @@ class StageFactory():
         for _, cost in costs_list.terminal.items():
             if cost.enabled:
                 match cost.weights.type:
-                    case "regularisation":
-                        self.addRegularisationCosts(cost.regularisation, True)
+                    case "state-regularisation":
+                        self.addStateRegularizationCost(cost.weights, True)
                     case _:
                         raise ValueError(f"Cost type {cost.type} not recognized, available types are : 'regularisation'")
             else:

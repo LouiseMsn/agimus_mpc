@@ -147,7 +147,7 @@ WeightType = Annotated[Union[WeightVector, WeightScalar], Field(discriminator="m
 
 class StateRegularizationWeights(BaseModel):
     """Weights for state regularization"""
-    type: Literal["regularisation"] = "regularisation"
+    type: Literal["state-regularisation"] = "state-regularisation"
     position: WeightType = Field(
         description="Position regularization weights"
     )
@@ -166,7 +166,6 @@ class WaypointWeights6D(BaseModel):
     orientation: WeightType = Field(
         description="Weights for orientation part of the cost"
     )
-    @property
     def get_weights(self):
         """Get the actual weight vectors for translation and orientation, applying scaling if needed"""
         match self.translation.mode:
