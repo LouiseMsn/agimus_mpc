@@ -1,4 +1,4 @@
-from aligator_mpc.mpcParameters import Config
+from aligator_mpc.mpcParameters import Config, StateRegularizationWeights, TorqueLimitsConstraint, CollisionConstraint, ConstraintType, CostsConfig, WaypointWeightsConfig, StateRegularizationWeights 
 from aligator_mpc.mpcTrajectoryUtils import Interpolator
 from aligator_mpc.mpcUtils import getIndexesFromJointNames
 import aligator
@@ -19,12 +19,15 @@ class MPC():
         self.parameters = parameters
         self.waypoints = waypoints
         print(self.parameters)
-        # Initialize robot
+        # Build the robot model
         model = pin.buildModelFromXML(robot_urdf)
-        self.robot = pin.RobotWrapper(model)
-        self.robot.model = pin.buildReducedModel(self.robot.model, getIndexesFromJointNames(self.robot, self.parameters.robot.joints_to_fix), pin.neutral(self.robot.model))
+        visual_model = pin.buildGeomFromUrdfString(model, robot_urdf, pin.GeometryType.VISUAL,  self.parameters.robot.meshes_packages)
+        collision_model = pin.buildGeomFromUrdfString(model, robot_urdf, pin.GeometryType.COLLISION,  self.parameters.robot.meshes_packages)
+        self.robot = pin.RobotWrapper(model, collision_model, visual_model)
+        # Lock joints if needed
+        self.robot.model = pin.buildReducedModel(self.robot.model, getIndexesFromJointNames(self.robot, self.parameters.robot.locked_joints), pin.neutral(self.robot.model))
         self.robot.data = self.robot.model.createData()        
-
+        
         self.space = self.space = manifolds.MultibodyPhaseSpace(self.robot.model)
         self.tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
         self.world_frame_id = self.robot.model.getFrameId(self.parameters.robot.world_frame_name)
@@ -58,12 +61,12 @@ class MPC():
             callback (aligator.HistoryCallback) 
         """
 
-        solver = aligator.SolverProxDDP(self.parameters.mpc.solver.presolve.tolerance, self.parameters.mpc.solver.presolve.mu_init, max_iters=self.parameters.mpc.solver.presolve.max_iters, verbose=eval(self.parameters.mpc.solver.verbose))
-        solver.rollout_type = eval(self.parameters.mpc.solver.rollout_type)
-        solver.sa_strategy = eval(self.parameters.mpc.solver.sa_strategy)
-        solver.linear_solver_choice = eval(self.parameters.mpc.solver.linear_solver_choice)
+        solver = aligator.SolverProxDDP(self.parameters.task.mpc.solver.presolve.tolerance, self.parameters.task.mpc.solver.presolve.mu_init, max_iters=self.parameters.task.mpc.solver.presolve.max_iters, verbose=eval(self.parameters.task.mpc.solver.verbose))
+        solver.rollout_type = eval(self.parameters.task.mpc.solver.rollout_type)
+        solver.sa_strategy = eval(self.parameters.task.mpc.solver.sa_strategy)
+        solver.linear_solver_choice = eval(self.parameters.task.mpc.solver.linear_solver_choice)
         if solver.linear_solver_choice == aligator.LQ_SOLVER_PARALLEL:
-            solver.setNumThreads(self.parameters.mpc.solver.num_threads)
+            solver.setNumThreads(self.parameters.task.mpc.solver.num_threads)
         callback = aligator.HistoryCallback(solver)
         solver.registerCallback("his", callback)
 
@@ -89,7 +92,7 @@ class MPC():
         """ Initializes the stage_factory object and the u_min and u_max variables
         """
 
-        self.stage_factory = StageFactory(self.robot, self.space, self.parameters.mpc.n_total_steps, self.discrete_dynamics, self.waypoints, self.parameters)
+        self.stage_factory = StageFactory(self.robot, self.space, self.parameters.task.mpc.n_total_steps, self.discrete_dynamics, self.waypoints, self.parameters)
 
         # Min & Max torque on command output
         self.u_min = self.stage_factory.u_min
@@ -110,27 +113,27 @@ class MPC():
 
         if self.solver_stage_number == 0:
             # create the data
-            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.nv)) for _ in range(self.parameters.mpc.nb_steps_horizon)]
+            us = [self.computeQuasistatic(self.robot.model, self.x0, a = np.zeros(self.nv)) for _ in range(self.parameters.task.mpc.nb_steps_horizon)]
             xs = aligator.rollout(self.discrete_dynamics, self.x0, us)
 
             # create the stages & problem
-            stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.mpc.nb_steps_horizon)
+            stages, terminal_coststack = self.stage_factory.fabricateStages(0, self.parameters.task.mpc.nb_steps_horizon)
             # terminal_coststack = self.stage_factory.getTerminalCoststack(0)
 
             self.problem = aligator.TrajOptProblem(self.x0, stages, terminal_coststack)
             self.solver.setup(self.problem)
-            self.solver.max_iters = self.parameters.mpc.solver.presolve.max_iters
-            self.solver.mu_init = self.parameters.mpc.solver.presolve.mu_init
-            self.solver.tol = self.parameters.mpc.solver.presolve.tolerance            
+            self.solver.max_iters = self.parameters.task.mpc.solver.presolve.max_iters
+            self.solver.mu_init = self.parameters.task.mpc.solver.presolve.mu_init
+            self.solver.tol = self.parameters.task.mpc.solver.presolve.tolerance            
         else:
 
-            self.solver.max_iters = self.parameters.mpc.solver.running.max_iters
-            self.solver.mu_init = self.parameters.mpc.solver.running.mu_init
-            self.solver.tol = self.parameters.mpc.solver.running.tolerance
+            self.solver.max_iters = self.parameters.task.mpc.solver.running.max_iters
+            self.solver.mu_init = self.parameters.task.mpc.solver.running.mu_init
+            self.solver.tol = self.parameters.task.mpc.solver.running.tolerance
             # cycle the data
             us   = self.cycleData(self.results.us.tolist(), None, None)
             xs   = self.cycleData(self.results.xs.tolist(), current_xs,"xs")
-            end_of_horizon_index = self.solver_stage_number + self.parameters.mpc.nb_steps_horizon # -1 because the first stage is 0
+            end_of_horizon_index = self.solver_stage_number + self.parameters.task.mpc.nb_steps_horizon # -1 because the first stage is 0
 
             # cycle the stages
             stage_model = self.stage_factory.getStageModel(end_of_horizon_index)
@@ -178,7 +181,7 @@ class MPC():
         nu = self.robot.model.nv
         B_mat = np.eye(nu)
         ode = dynamics.MultibodyFreeFwdDynamics(self.space, B_mat) # Ordinatry Diff Equation: resolution de l'équation de la dynamique
-        dynamic_model = dynamics.IntegratorSemiImplEuler(ode, self.parameters.mpc.dt)
+        dynamic_model = dynamics.IntegratorSemiImplEuler(ode, self.parameters.task.mpc.dt)
         return dynamic_model
 
     def computeQuasistatic(self, robot_model: pin.Model, x0, a) -> list[float]:
@@ -249,7 +252,7 @@ class MPC():
         return ee_pos
 
 class StageFactory():
-    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params) -> None:
+    def __init__(self, robot, space, n_steps, discrete_dynamics, waypoints, params: Config) -> None:
         self.robot = robot
         self.space = space
         self.nq = self.robot.model.nq
@@ -272,11 +275,8 @@ class StageFactory():
 
         self.interpolator = self.getInterpolator()
 
-        self.addWaypointCosts()
-        self.addJointsLimitsConstraints()
-        self.addTorqueLimitsConstraints()
-        self.addRegularisationCosts()
-        # self.addAutoCollisionsConstraints()
+        self.addConstraints(self.parameters.task.mpc.constraints)
+        self.addCosts(self.parameters.task.mpc.costs)
         self.buildStageModelList()
 
     def getInterpolator(self) -> Interpolator:
@@ -287,8 +287,8 @@ class StageFactory():
         """
         start_pos = self.robot.data.oMf[self.tool_id]        
         self.waypoints = [start_pos] + self.waypoints
-        rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start {pin.rpy.matrixToRpy(start_pos.rotation)} { start_pos.translation}')
-        return Interpolator(self.waypoints, self.parameters.trajectory.vel)
+        rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start translation :{ start_pos.translation} rotation: {pin.rpy.matrixToRpy(start_pos.rotation)}')
+        return Interpolator(self.waypoints, self.parameters.task.trajectory.vel)
 
     def getStageModel(self, stage_number:int) -> aligator.StageModel :
         """Returns the stage model for the `stage_number` th stage
@@ -302,7 +302,7 @@ class StageFactory():
         if len(self.stage_model_list ) == 0:
             raise ValueError("The stage model list is not built, run buildStageModelList() before running getStageModel()")
         else:
-            if stage_number >= self.parameters.mpc.n_total_steps :
+            if stage_number >= self.parameters.task.mpc.n_total_steps :
                 return self.stage_model_list[-1]
             else:
                 return self.stage_model_list[stage_number]
@@ -314,7 +314,7 @@ class StageFactory():
             List[aligator.StageModel]: list of stage models 
         """
 
-        for stage_number in range(self.parameters.mpc.n_total_steps):
+        for stage_number in range(self.parameters.task.mpc.n_total_steps):
         
             stage_coststack = aligator.CostStack(self.space, self.nu)
             cost_list = self.getDynamicCosts(stage_number, self.stages_definition.stage_dep_costs)
@@ -377,7 +377,7 @@ class StageFactory():
         return stages , terminal_coststack
 
     # ==========================================================================
-    # Cost & Constraints functions
+    # Constraints functions
     # ==========================================================================
     def addJointsLimitsConstraints(self) -> None:
         """Adds joints limits constraints (joint_angle_residual, box_constraint) to self.stages_definition.constraints
@@ -403,10 +403,26 @@ class StageFactory():
 
             constraint = (joint_angle_residual, box_constraint)
             self.stages_definition.constraints.append(constraint)
+    
+    def addVelocityLimitsConstraints(self) -> None :
+        # TODO : implement velocity limits constraints
+        pass
 
-    def addTorqueLimitsConstraints(self) -> None :
-        """Adds torque limits constraints (joint_angle_residual, box_constraint) to self.stages_definition.constraints
+    def addTorqueLimitsConstraints(self, constraint: TorqueLimitsConstraint) -> None:
+        """Adds torque limits constraints (joint_angle_residual, box_constraint) to self.stages_definition.constraints 
+        using the limits defined in `constraint` and applying the scaling defined in `constraint` to the default torque limits of the robot.
+        
+        Parameters:
+            constraint (TorqueLimitsConstraint): contains the min and max torque limits to apply.
         """
+        if constraint.per_joint_scaling:
+            for joint, scaling in constraint.per_joint_scaling:
+                joint_idx = getIndexesFromJointNames(self.robot, [joint])[0]
+                self.u_max[joint_idx] *= scaling
+                self.u_min[joint_idx] *= scaling
+        else:
+            self.u_max = np.array(self.u_max) * np.array(constraint.scale_factor)
+            self.u_min = np.array(self.u_min) * np.array(constraint.scale_factor)
         nv = self.robot.model.nv
         nu = nv
         ndx = self.space.ndx
@@ -414,78 +430,7 @@ class StageFactory():
         constraint = constraints.BoxConstraint(self.u_min, self.u_max)
         self.stages_definition.constraints.append((residual, constraint))
 
-    def addRegularisationCosts(self) -> None:
-        """Adds regulation costs to self.stages_definition.stage_dep_costs
-        """
-        ## Running costs
-        # State reg
-        wt_x = np.diag(
-        [self.parameters.mpc.weights.running.regularisation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
-        +
-        [self.parameters.mpc.weights.running.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
-
-        position_ref = self.parameters.mpc.regularisation_ref.joint_pos
-        vel_ref = self.parameters.mpc.regularisation_ref.joint_vel
-
-        x_ref = np.array(position_ref + vel_ref)
-
-        stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)) for i in range(self.parameters.mpc.n_total_steps)]
-
-        if(self.parameters.mpc.weights.running.regularisation.vel > 0. or self.parameters.mpc.weights.running.regularisation.joint > 0.):
-            self.stages_definition.stage_dep_costs.append(stage_reg_cost)
-        
-        # Control reg
-        wt_u = self.parameters.mpc.weights.running.regularisation.command*np.eye(self.nu)
-
-        control_reg_cost = [(f"reg_ctrl_{i}", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)) for i in range(self.parameters.mpc.n_total_steps)]
-
-        if(self.parameters.mpc.weights.running.regularisation.command > 0.):
-            self.stages_definition.stage_dep_costs.append(control_reg_cost)
-
-        ## Terminal costs
-        # State reg
-        wt_x_term = np.diag(
-        [self.parameters.mpc.weights.terminal.regularisation.joint * w for w in [25,10,1,1,1,0.1,0.01]]
-        +
-        [self.parameters.mpc.weights.terminal.regularisation.vel * w for w in [20,20,1,1,1,1.,1.]])
-
-        if(self.parameters.mpc.weights.terminal.regularisation.vel > 0. or self.parameters.mpc.weights.terminal.regularisation.joint > 0.):
-            self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x_term)))
-        
-        # Control reg
-        wt_u_term = self.parameters.mpc.weights.terminal.regularisation.command*np.eye(self.nu)
-
-        if(self.parameters.mpc.weights.terminal.regularisation.command > 0.):
-            self.stages_definition.terminal_costs.append(("reg_ctrl_term", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u_term)))
-
-    def addWaypointCosts(self) -> None:
-        """For each stage adds a cost tied to matching the end effector frame to a waypoint frame and a cost tied to matching the frame velocity
-        """
-        tool_id = self.robot.model.getFrameId(self.parameters.robot.tool_frame_name)
-        frame_vel_cost = []
-        placement_costs = []
-        for t in range (self.parameters.mpc.n_total_steps):
-            pose , target_vel = self.interpolator(t*self.parameters.mpc.dt)
-
-            placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, pose, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name))
-
-            wt_frame_pose = np.diag( [self.parameters.mpc.weights.running.waypoints.pose.translation]*3 + [self.parameters.mpc.weights.running.waypoints.pose.orientation]*3)
-            cost = (f"pose_{t}", aligator.QuadraticResidualCost(self.space, placement_residual, wt_frame_pose))
-            placement_costs.append(cost)
-        
-            # cost on the velocity of the waypoint
-            frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, target_vel, self.tool_id, pin.WORLD)
-            wt_frame_vel = np.diag( [self.parameters.mpc.weights.running.waypoints.vel.translation]*3 + [self.parameters.mpc.weights.running.waypoints.vel.orientation]*3)
-            cost_vel = (f"frame_vel_{t}", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel))
-            frame_vel_cost.append(cost_vel)
-
-
-        if(self.parameters.mpc.weights.running.waypoints.pose.translation > 0 or self.parameters.mpc.weights.running.waypoints.pose.orientation > 0):
-            self.stages_definition.stage_dep_costs.append(placement_costs)
-        if(self.parameters.mpc.weights.running.waypoints.vel.translation > 0 or self.parameters.mpc.weights.running.waypoints.vel.orientation > 0):
-            self.stages_definition.stage_dep_costs.append(frame_vel_cost)
-
-    def addAutoCollisionsConstraints(self) -> None:
+    def addCollisionsConstraints(self, collision_constraint: CollisionConstraint) -> None: # TODO : implement self collision constraints using the collision pairs defined in `collision_constraint` and the distance function of pinocchio, add the possibility to use a custom distance function
         """
         Adds a cost in `self.stages_definition.constraints` linked to self collisions of the robot.
         \n Work in progress
@@ -495,11 +440,142 @@ class StageFactory():
         for i in pairs_2_add:
             collision_residual = aligator.FrameCollisionResidual(self.ndx, self.nu, self.robot.model, self.robot.collision_model, i)
             # log barrier : weight*ln(function)
-            self.stages_definition.stage_indep_costs.append((f"collision_{i}", aligator.LogResidualCost(self.space, collision_residual, self.parameters.mpc.weights.collision * np.eye(collision_residual.nr))))
+            self.stages_definition.stage_indep_costs.append((f"collision_{i}", aligator.LogResidualCost(self.space, collision_residual, self.parameters.task.mpc.weights.collision * np.eye(collision_residual.nr))))
 
             collision_constraint = constraints.BoxConstraint(np.array([0.05]), np.array([100]))
             self.stages_definition.constraints.append((collision_residual, collision_constraint))
 
+    def addConstraints(self, constraints_list: List[ConstraintType]) -> None:
+        """Adds constraints to self.stages_definition.constraints using the `add` functions defined in this class according to the type of each constraint in `constraints_list`
+
+        Args:
+            constraints_list (List[ConstraintType]): list of constraints to add
+        """
+        for constraint in constraints_list:
+            if constraint.enabled:
+                match constraint.type:
+                    case "joint_limits":
+                        self.addJointsLimitsConstraints()
+                    case "velocity_limits":
+                        # self.addVelocityLimitsConstraints()
+                        pass
+                    case "torque_limits":
+                        self.addTorqueLimitsConstraints(constraint)
+                    case "collision":
+                        # self.addCollisionsConstraints(constraint)
+                        pass
+                    case _:
+                        raise ValueError(f"Constraint type {constraint.type} not recognized, available types are : 'joint_limits', 'velocity_limits', 'torque_limits' and 'collision'")
+    # ==========================================================================
+    # Costs functions
+    # ==========================================================================
+    def addStateRegularizationCost(self,reg_cost:StateRegularizationWeights, terminal:bool) -> None:
+        """Adds regulation costs to self.stages_definition.stage_dep_costs
+        """
+        # Handle the different modes for the state regularisation weights (scalar, scalable-vector)
+        match reg_cost.position.mode:
+            case "scalable-vector":
+                weight_pos = np.array(reg_cost.position.values)*reg_cost.position.scale
+            case "scalar":
+                weight_pos = reg_cost.position.value * np.ones(self.nq)
+        match reg_cost.velocity.mode:
+            case "scalable-vector":
+                weight_vel = np.array(reg_cost.velocity.values)*reg_cost.velocity.scale
+            case "scalar":
+                weight_vel = reg_cost.velocity.value * np.ones(self.nv)
+        match reg_cost.torque.mode:
+            case "scalable-vector":
+                weight_torque = np.array(reg_cost.torque.values)*reg_cost.torque.scale
+            case "scalar":
+                weight_torque = reg_cost.torque.value * np.ones(self.nu)
+        
+        wt_x = np.diag(np.concatenate([weight_pos, weight_vel]))
+        wt_u = np.diag(weight_torque)
+
+        position_ref = self.parameters.task.mpc.regularisation_ref.joint_pos
+        vel_ref = self.parameters.task.mpc.regularisation_ref.joint_vel
+        x_ref = np.array(position_ref + vel_ref)
+
+        if not terminal:
+            # State reg
+            stage_reg_cost = [(f"reg_state_{i}", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)) for i in range(self.parameters.task.mpc.n_total_steps)]
+            # Check if at least one of the weights is non-zero before adding the cost to the stage definition
+            if(np.max(np.abs(weight_vel)) > 0 or np.max(np.abs(weight_pos)) > 0):
+                self.stages_definition.stage_dep_costs.append(stage_reg_cost)
+            # Control reg
+            control_reg_cost = [(f"reg_ctrl_{i}", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)) for i in range(self.parameters.task.mpc.n_total_steps)]
+            if(np.max(np.abs(weight_torque)) > 0):
+                self.stages_definition.stage_dep_costs.append(control_reg_cost)
+        else:
+            # State reg
+            if(np.max(np.abs(weight_vel)) > 0 or np.max(np.abs(weight_pos)) > 0):
+                self.stages_definition.terminal_costs.append(("reg_state_term", aligator.QuadraticStateCost(self.space, self.nu, x_ref, wt_x)))
+            # Control reg
+            if(np.max(np.abs(weight_torque)) > 0):
+                self.stages_definition.terminal_costs.append(("reg_ctrl_term", aligator.QuadraticControlCost(self.space, np.zeros(self.nu), wt_u)))
+
+    def addWaypointCosts(self, cost:WaypointWeightsConfig) -> None:
+        """For each stage adds a cost tied to matching the end effector frame to a waypoint frame and a cost tied to matching the frame velocity
+        """
+        pose_translation_weights, pose_orientation_weights = cost.pose.get_weights()
+        vel_translation_weights, vel_orientation_weights = cost.velocity.get_weights()
+        wt_frame_pose = np.diag(np.concatenate([pose_translation_weights, pose_orientation_weights]))
+        wt_frame_vel = np.diag(np.concatenate([vel_translation_weights, vel_orientation_weights]))
+        frame_vel_cost = []
+        placement_costs = []
+        for t in range (self.parameters.task.mpc.n_total_steps):
+            pose , target_vel = self.interpolator(t*self.parameters.task.mpc.dt)
+            # cost on the placement of the waypoint
+            placement_residual = aligator.FramePlacementResidual(self.ndx, self.nu, self.robot.model, pose, self.robot.model.getFrameId(self.parameters.robot.tool_frame_name))
+            cost = (f"pose_{t}", aligator.QuadraticResidualCost(self.space, placement_residual, wt_frame_pose))
+            placement_costs.append(cost)
+        
+            # cost on the velocity of the waypoint
+            frame_vel_fn = aligator.FrameVelocityResidual(self.ndx, self.nu, self.robot.model, target_vel, self.tool_id, pin.WORLD)
+            cost_vel = (f"frame_vel_{t}", aligator.QuadraticResidualCost(self.space, frame_vel_fn, wt_frame_vel))
+            frame_vel_cost.append(cost_vel)
+        # Check if pose weights are non-zero
+        pose_trans_max = np.max(np.abs(pose_translation_weights))
+        pose_orient_max = np.max(np.abs(pose_orientation_weights))
+        
+        if (pose_trans_max > 0 or pose_orient_max > 0):
+            self.stages_definition.stage_dep_costs.append(placement_costs)
+        
+        # Check if velocity weights are non-zero
+        vel_trans_max = np.max(np.abs(vel_translation_weights))
+        vel_orient_max = np.max(np.abs(vel_orientation_weights))
+        
+        if (vel_trans_max > 0 or vel_orient_max > 0):
+            self.stages_definition.stage_dep_costs.append(frame_vel_cost)
+
+    def addCosts(self, costs_list: CostsConfig) -> None:
+        """Adds costs to self.stages_definition.stage_dep_costs using the `add` functions defined in this class according to the type of each cost in `costs_list`
+
+        Args:
+            costs_list (CostsConfig): list of costs to add
+        """
+        # Add running costs
+        for _, cost in costs_list.running.items():
+            if cost.enabled:
+                match cost.weights.type:
+                    case "state-regularisation":
+                        self.addStateRegularizationCost(cost.weights, False)
+                    case "waypoints":
+                        self.addWaypointCosts(cost.weights)
+                    case _:
+                        raise ValueError(f"Cost type {cost.type} not recognized, available types are : 'regularisation' and 'waypoints'")
+            else:
+                continue
+        # Add terminal costs
+        for _, cost in costs_list.terminal.items():
+            if cost.enabled:
+                match cost.weights.type:
+                    case "state-regularisation":
+                        self.addStateRegularizationCost(cost.weights, True)
+                    case _:
+                        raise ValueError(f"Cost type {cost.type} not recognized, available types are : 'regularisation'")
+            else:
+                continue
     # ==========================================================================
     # Utils
     # ==========================================================================
@@ -529,7 +605,7 @@ class StageFactory():
             list: list of points
         """
         traj = []
-        for i in range(self.parameters.mpc.n_total_steps):
-            pos, _ = self.interpolator(i*self.parameters.mpc.dt)
+        for i in range(self.parameters.task.mpc.n_total_steps):
+            pos, _ = self.interpolator(i*self.parameters.task.mpc.dt)
             traj.append(pos.translation)
         return traj
