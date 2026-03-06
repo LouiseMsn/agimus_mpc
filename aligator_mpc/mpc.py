@@ -287,7 +287,7 @@ class StageFactory():
         """
         start_pos = self.robot.data.oMf[self.tool_id]        
         self.waypoints = [start_pos] + self.waypoints
-        rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start {pin.rpy.matrixToRpy(start_pos.rotation)} { start_pos.translation}')
+        rcutils_logger.RcutilsLogger(name="   MPC_DEBUG   ").info(f'start translation :{ start_pos.translation} rotation: {pin.rpy.matrixToRpy(start_pos.rotation)}')
         return Interpolator(self.waypoints, self.parameters.task.trajectory.vel)
 
     def getStageModel(self, stage_number:int) -> aligator.StageModel :
@@ -517,8 +517,8 @@ class StageFactory():
     def addWaypointCosts(self, cost:WaypointWeightsConfig) -> None:
         """For each stage adds a cost tied to matching the end effector frame to a waypoint frame and a cost tied to matching the frame velocity
         """
-        pose_translation_weights,pose_orientation_weights = cost.pose.get_weights()
-        vel_translation_weights,vel_orientation_weights = cost.velocity.get_weights()
+        pose_translation_weights, pose_orientation_weights = cost.pose.get_weights()
+        vel_translation_weights, vel_orientation_weights = cost.velocity.get_weights()
         wt_frame_pose = np.diag(np.concatenate([pose_translation_weights, pose_orientation_weights]))
         wt_frame_vel = np.diag(np.concatenate([vel_translation_weights, vel_orientation_weights]))
         frame_vel_cost = []

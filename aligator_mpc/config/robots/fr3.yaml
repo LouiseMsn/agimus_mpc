@@ -5,4 +5,4 @@ tool_frame_name: "fr3_hand_tcp"
 n_dof: 7 # Optional can be inferred from the length of joint limits, but it's good to have it explicitly for validation and clarity.
 
 # Locked joints (if any, specify the joint names here), this joint will not used in the MPC
-locked_joints: []
+locked_joints: ['fr3_finger_joint1', 'fr3_finger_joint2']
