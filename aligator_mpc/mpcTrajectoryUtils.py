@@ -33,12 +33,12 @@ class PatternGenerator:
             return self.zig_zag_curve_SE3(step=step, stride=stride, orientation=orientation)
         else:
             raise ValueError("Unknown pattern type")
-        
+
     def zig_zag_SE3(self, step=10, stride=0.2, orientation='vertical'):
         positions = self.zigzag(step, stride, orientation)
         points = add_orientation(positions, np.array([np.pi, 0., 0.]))
         return points
-    
+
     def zigzag(self, step=10, stride=0.2, orientation='vertical'):
         """
         Draws a zigzag pattern.
@@ -292,22 +292,22 @@ class PatternGenerator:
 class Interpolator:
     def my_log6(self, M : pin.SE3):
         return pin.log6(M)
-    
+
     def my_exp6(self, twist : pin.Motion):
         return pin.exp6(twist)
-    
+
     def my_log3(self, M: pin.SE3):
         twist = pin.Motion()
         twist.linear = M.translation
         twist.angular = pin.log3(M.rotation)
         return twist
-    
+
     def my_exp3(self, twist : pin.Motion):
         M = pin.SE3()
         M.translation = twist.linear
         M.rotation = pin.exp3(twist.angular)
         return M
-    
+
     def my_dist(self, a, b):
         twist = self.my_log3(a.actInv(b))
         weight = np.array([1.]*3 + [0.1]*3)
@@ -334,11 +334,11 @@ class Interpolator:
             d_segment = self.my_dist(current_pt, next_pt)
             distances.append(d_segment)
         return distances
-    
+
     def __call__(self, t):
         if t > self.t_total:
             return (self.waypoints[-1] , pin.Motion(np.zeros(6)))  # (last waypoint , null vel)
-        else: 
+        else:
             i = 0
             while t > self.dt[i]:
                 t = t - self.dt[i]
@@ -346,11 +346,11 @@ class Interpolator:
 
             current_pt = self.waypoints[i]
             next_pt = self.waypoints[i+1]
-            
+
            # exp6, log6 -> "curved" interpolation
            # exp3, log3 -> "linear" interpolation
-            twist_local = pin.Motion(self.my_log6(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_p     
-        
+            twist_local = pin.Motion(self.my_log6(current_pt.actInv(next_pt))/self.dt[i]) # speed to apply to go from current_p
+
             pose_local = self.my_exp6(twist_local * t) # integrate the twist over t to get the transformation from current point to point(t)
 
             pose_world =  current_pt.act(pose_local) # apply the transformation to the current point to get the pose of point(t)
@@ -360,7 +360,7 @@ class Interpolator:
 
 class TestTrajs:
     # "struct" class used to regroup test trajectory generators
-    def line(self, start_point:list, end_point:list):
+    def line(self, start_point:list, end_point:list, orientation:list):
         # add check to verify if point is valid
         if len(start_point)<3 :
             raise ValueError("Wrongly defined start point")
@@ -368,7 +368,9 @@ class TestTrajs:
             raise ValueError("Wrongly defined end point")
         else:
             trajectory = np.array([start_point, end_point])
-        return trajectory
+
+        points = add_orientation(trajectory, orientation)
+        return points
 
     def sine(self, amplitude=1.0, period=1.0, sine_axis="z", ampl_axis="x", start_point=[1,1,1], length=1.0, dist_between_points = 0.1):
 
@@ -394,9 +396,19 @@ class TestTrajs:
 
             trajectory.append(np.array(current_point))
 
-        
         points = add_orientation(trajectory, None)
         return points
+
+# Utils
+def getInterpolatedTraj(SE3_waypoints:list, speed:float, dt:float):
+    interpolator = Interpolator(SE3_waypoints, speed=speed)
+    full_trajectory = []
+    for t in np.arange(0, interpolator.t_total, dt) :
+        pose, _ = interpolator(t)
+        full_trajectory.append(pose.translation)
+    return full_trajectory
+
+
 
 def draw_frame(ax, pose: SE3,scale=[1, 1, 1]):
     """
@@ -427,6 +439,15 @@ def add_orientation(positions, orientation):
             ori = computeMatrixOrientation(positions[i], positions[i+1])
         point = pin.SE3(ori, positions[i])
         points.append(point)
+
+    # for the last point copy the last orientation
+    if type(orientation) == type(np.empty(1)):
+        ori = rpyToMatrix(orientation)
+    else:
+        ori = computeMatrixOrientation(positions[-2], positions[-1])
+    point = pin.SE3(ori, positions[-1])
+    points.append(point)
+
     return points
 
 def computeMatrixOrientation(current_point, next_point):
@@ -438,34 +459,34 @@ def computeMatrixOrientation(current_point, next_point):
     return orientation
 
 if __name__=="__main__":
-    start = pin.SE3(rpyToMatrix(-3.14128088,  0.05769075,  0.00540671), np.array([ 2.99996436e-01, -1.34822114e-07,  4.60813723e-01]))
-    patternGen = PatternGenerator([0.5,0.5,0], (0.5, 0,0.1))
-    # positions = [start] + patternGen.generate_pattern('zigzag_curve',stride=0.1)
-    patternGen = PatternGenerator([0.3,0.3,0], (0.5, 0,0.1))
-    positions = [start] +  patternGen.generate_pattern('zigzag',stride=0.05)
-    
-    # test_trajs = TestTrajs()
-    # startsin = [0.3, -0., 0.2]
-    # positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
-    interpolator = Interpolator(positions, 0.1)
+    # start = pin.SE3(rpyToMatrix(-3.14128088,  0.05769075,  0.00540671), np.array([ 2.99996436e-01, -1.34822114e-07,  4.60813723e-01]))
+    # patternGen = PatternGenerator([0.5,0.5,0], (0.5, 0,0.1))
+    # # positions = [start] + patternGen.generate_pattern('zigzag_curve',stride=0.1)
+    # patternGen = PatternGenerator([0.3,0.3,0], (0.5, 0,0.1))
+    # positions = [start] +  patternGen.generate_pattern('zigzag',stride=0.05)
 
-    # Debug of trajectory of adding orientation
+    test_trajs = TestTrajs()
+    startsin = [0.3, -0., 0.2]
+    positions = test_trajs.sine(start_point=startsin,length=1,period=0.05,amplitude=0.1, dist_between_points=0.01, sine_axis="Y", ampl_axis="X")
+    # interpolator = Interpolator(positions, 0.1)
+
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     i = 0
-    while i < len(positions):
-        orientation = matrixToRpy(positions[i].rotation)
-        print(orientation)
-        roll = orientation[0]
-        pitch = orientation[1]
-        yaw = orientation[2]
-        pose = positions[i].translation
-        R = rpyToMatrix(roll, pitch, yaw)
-        print((R))
-        print((pose))
-        pose_6d = pin.SE3(R, pose)
-        draw_frame(ax, pose_6d)
-        ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
+    traj = getInterpolatedTraj(positions, 0.1, 0.1)
+    for point in traj:
+        # orientation = traj.orientation
+        # print(orientation)
+        # roll = orientation[0]
+        # pitch = orientation[1]
+        # yaw = orientation[2]
+        # pose = point.translation
+        # R = rpyToMatrix(roll, pitch, yaw)
+        # print((R))
+        # print((pose))
+        # pose_6d = pin.SE3(R, pose)
+        # draw_frame(ax, pose_6d)
+        ax.scatter(*point, marker="^", c="r",alpha=0.5,s=15)
         i += 1
 
     ax.set_xlabel('X')
@@ -476,30 +497,60 @@ if __name__=="__main__":
     plt.tight_layout()
     plt.show()
 
-    # Debug of trajectory of adding orientation
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
-    t = 0
-    while t <= interpolator.t_total:
-        point, _ = interpolator(t)
-        orientation = matrixToRpy(point.rotation)
-        print(orientation)
-        roll = orientation[0]
-        pitch = orientation[1]
-        yaw = orientation[2]
-        pose = point.translation
-        R = rpyToMatrix(roll, pitch, yaw)
-        print((R))
-        print((pose))
-        pose_6d = pin.SE3(R, pose)
-        draw_frame(ax, pose_6d)
-        ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
-        t += 0.1
 
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Z')
-    ax.set_title("Interpolation position + orientation 3D (RBF)")
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+
+
+    # # Debug of trajectory of adding orientation
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # i = 0
+    # while i < len(positions):
+    #     orientation = matrixToRpy(positions[i].rotation)
+    #     print(orientation)
+    #     roll = orientation[0]
+    #     pitch = orientation[1]
+    #     yaw = orientation[2]
+    #     pose = positions[i].translation
+    #     R = rpyToMatrix(roll, pitch, yaw)
+    #     print((R))
+    #     print((pose))
+    #     pose_6d = pin.SE3(R, pose)
+    #     draw_frame(ax, pose_6d)
+    #     ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
+    #     i += 1
+
+    # ax.set_xlabel('X')
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('Z')
+    # ax.set_title("Interpolation position + orientation 3D (RBF)")
+    # ax.legend()
+    # plt.tight_layout()
+    # plt.show()
+
+    # # Debug of trajectory of adding orientation
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # t = 0
+    # while t <= interpolator.t_total:
+    #     point, _ = interpolator(t)
+    #     orientation = matrixToRpy(point.rotation)
+    #     print(orientation)
+    #     roll = orientation[0]
+    #     pitch = orientation[1]
+    #     yaw = orientation[2]
+    #     pose = point.translation
+    #     R = rpyToMatrix(roll, pitch, yaw)
+    #     print((R))
+    #     print((pose))
+    #     pose_6d = pin.SE3(R, pose)
+    #     draw_frame(ax, pose_6d)
+    #     ax.scatter(*pose, marker="^", c="r",alpha=0.5,s=15)
+    #     t += 0.1
+
+    # ax.set_xlabel('X')
+    # ax.set_ylabel('Y')
+    # ax.set_zlabel('Z')
+    # ax.set_title("Interpolation position + orientation 3D (RBF)")
+    # ax.legend()
+    # plt.tight_layout()
+    # plt.show()
